@@ -236,6 +236,9 @@ bool Context::Init(SDL_Window* window, bool validation) {
         return false;
     }
     LogInfo("vulkan: using {} (driver {:X})", properties.deviceName, properties.driverVersion);
+#ifdef __ANDROID__
+    android::SetGpuVendor(properties.vendorID);
+#endif
 
     VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     features13.dynamicRendering = VK_TRUE;

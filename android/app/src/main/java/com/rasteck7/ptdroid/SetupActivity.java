@@ -5,6 +5,9 @@ import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -74,12 +77,33 @@ public class SetupActivity extends Activity {
         targetDir = new File(getExternalFilesDir(null), "CUSA01127");
         // the last run crashed, ran out of memory or hung: say so and offer the log before starting again
         lastExit = CrashReport.lastBadExit(this);
-        driverScreen = getIntent().hasExtra("gpu_driver");
+        driverScreen = getIntent().hasExtra("gpu_driver") && GpuDriver.supported();
+        publishDriverShortcut();
         if (haveGame() && lastExit == null && !driverScreen) {
             startGame();
             return;
         }
         buildUi();
+    }
+
+    // the icon's long-press "GPU driver" entry, only on Adreno phones (a static shortcut cannot be conditional)
+    private void publishDriverShortcut() {
+        ShortcutManager manager = getSystemService(ShortcutManager.class);
+        if (manager == null) {
+            return;
+        }
+        try {
+            if (GpuDriver.supported()) {
+                Intent intent = new Intent(this, SetupActivity.class).setAction(Intent.ACTION_MAIN).putExtra("gpu_driver", true);
+                manager.setDynamicShortcuts(java.util.Collections.singletonList(
+                        new ShortcutInfo.Builder(this, "gpu_driver").setShortLabel(getString(R.string.shortcut_gpu_driver))
+                                .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher)).setIntent(intent).build()));
+            } else {
+                manager.removeAllDynamicShortcuts();
+            }
+        } catch (RuntimeException ignored) {
+            // shortcuts are a convenience; the game's settings page has the same option
+        }
     }
 
     @Override
@@ -207,7 +231,9 @@ public class SetupActivity extends Activity {
         if (installed && lastExit == null) {
             column.addView(button("Jugar", v -> startGame()));
         }
-        addDriverSection(column);
+        if (GpuDriver.supported()) {
+            addDriverSection(column);
+        }
         if (installed) {
             status = text("", 14, false);
             column.addView(status);

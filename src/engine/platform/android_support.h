@@ -41,6 +41,11 @@ void RequestAllFilesAccess();
 // own, opened through libadrenotools. Returns the driver's vkGetInstanceProcAddr, or null (the reason in `error`, empty when
 // none is installed) to use the system driver. The driver is on trial from here until EndGpuDriverTrial(): if the app dies
 // in between, the next start drops the driver so it cannot trap the person in a crash loop.
+// True when the Vulkan device in use is an Adreno (Qualcomm's PCI vendor id 0x5143, also reported by Turnip): the only GPUs
+// libadrenotools and the custom drivers support, so the settings page offers the driver rows only there.
+// vk::Context::Init records it once the device is chosen.
+void SetGpuVendor(unsigned vendor_id);
+bool IsAdrenoGpu();
 // The installed driver's name for the settings page (meta.json's "name", else the library's file name); empty when none.
 std::string GpuDriverName();
 // Opens Android's file picker for a driver .zip (PTActivity.pickGpuDriver); the install happens there and applies at the

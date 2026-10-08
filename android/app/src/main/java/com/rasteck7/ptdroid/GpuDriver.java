@@ -2,6 +2,7 @@ package com.rasteck7.ptdroid;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 
 import org.json.JSONObject;
 
@@ -10,6 +11,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Locale;
 
 /**
  * The custom Vulkan driver (docs/android.md). Adrenotools only loads drivers from the app's private storage, so the
@@ -19,6 +21,17 @@ import java.nio.file.Files;
  */
 final class GpuDriver {
     private GpuDriver() {}
+
+    /**
+     * Custom drivers (Turnip) only exist for Adreno, Qualcomm's GPU. Before the game has run there is no Vulkan device to
+     * ask, so this goes by the SoC; the game's own settings page asks the Vulkan device (android_support.cpp).
+     */
+    static boolean supported() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && "Qualcomm".equalsIgnoreCase(Build.SOC_MANUFACTURER)) {
+            return true;
+        }
+        return Build.HARDWARE != null && Build.HARDWARE.toLowerCase(Locale.ROOT).contains("qcom");
+    }
 
     static File dir(Context context) {
         return new File(context.getFilesDir(), "gpu_driver");

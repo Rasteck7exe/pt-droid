@@ -363,6 +363,14 @@ void* g_gpu_driver = nullptr;
 
 }  // namespace
 
+namespace {
+unsigned g_gpu_vendor = 0;
+}
+
+void SetGpuVendor(unsigned vendor_id) { g_gpu_vendor = vendor_id; }
+
+bool IsAdrenoGpu() { return g_gpu_vendor == 0x5143; }
+
 std::string GpuDriverName() {
     const std::filesystem::path dir = GpuDriverDir();
     std::ifstream main(dir / "main.txt");

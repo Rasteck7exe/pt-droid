@@ -4367,6 +4367,8 @@ int main(int argc, char** argv) {
 #ifdef __ANDROID__
     // docs/android.md: landscape only, and the shaders, fonts and voice models copied out of the APK on a new build's
     // first start (pt::ExecutableDir() is that copy)
+    pt::android::InstallCrashHandler();
+    pt::LogInfo("android: {} {}, API {}", SDL_GetAndroidSDKVersion() >= 0 ? "Android" : "?", SDL_GetPlatform(), SDL_GetAndroidSDKVersion());
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
     // touches drive the on-screen controls only; as mouse clicks they would also act in the game

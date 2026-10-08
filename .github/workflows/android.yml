@@ -59,6 +59,11 @@ jobs:
           ls -l "pt-droid-${version}.apk"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "file=pt-droid-${version}.apk" >> "$GITHUB_OUTPUT"
+          # the unstripped libmain.so, to resolve the offsets of a crash backtrace in pt.log (llvm-addr2line)
+          so=$(find android/app/build/intermediates -path '*arm64-v8a/libmain.so' -printf '%s %p\n' | sort -n | tail -1 | cut -d' ' -f2)
+          ls -l "$so"
+          xz -T0 -6 -c "$so" > "libmain-${version}-symbols.so.xz"
+          echo "symbols=libmain-${version}-symbols.so.xz" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,7 +76,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "android-v${{ steps.apk.outputs.version }}" "${{ steps.apk.outputs.file }}" \
+          gh release create "android-v${{ steps.apk.outputs.version }}" "${{ steps.apk.outputs.file }}" "${{ steps.apk.outputs.symbols }}" \
             --prerelease --target "${GITHUB_SHA}" --title "PT Droid ${{ steps.apk.outputs.version }}" \
             --notes "APK de prueba del port de P.T. para Android, rama ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Instrucciones en docs/android.md."
 

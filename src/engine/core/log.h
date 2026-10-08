@@ -12,6 +12,8 @@ enum class LogLevel { Debug, Info, Warn, Error };
 void LogWrite(LogLevel level, std::string_view text);
 void LogSetFile(const char* path);
 void LogSetTick(uint64_t tick);
+// the log file's descriptor (-1 without one), for the crash handler, which may not take locks or use stdio
+int LogFileDescriptor();
 
 template <typename... Args>
 void LogDebug(std::format_string<Args...> fmt, Args&&... args) {

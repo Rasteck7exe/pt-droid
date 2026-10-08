@@ -26,6 +26,11 @@ std::filesystem::path SharedGameDir();
 // <app external files>/CUSA01127: the folder that works without any permission (filled by USB or adb).
 std::filesystem::path AppGameDir();
 
+// Writes a native crash (signal, faulting address, registers and a backtrace with library offsets) and uncaught C++
+// exceptions to pt.log and logcat before the process dies; the setup screen offers that log to share
+// (android/.../SetupActivity.java). The offsets resolve against the unstripped libmain.so the CI attaches to each release.
+void InstallCrashHandler();
+
 // The "all files access" permission (MANAGE_EXTERNAL_STORAGE), through the activity (android/.../PTActivity.java).
 bool HasAllFilesAccess();
 void RequestAllFilesAccess();

@@ -28,6 +28,12 @@
         android:enableOnBackInvokedCallback="false"
         android:hardwareAccelerated="true">
 
+        <!-- hands the crash report to the app it is shared with (LogProvider.java) -->
+        <provider android:name=".LogProvider"
+            android:authorities="com.rasteck7.ptdroid.logs"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
         <!-- first screen: imports the game files with the system file picker, then starts the game (docs/android.md) -->
         <activity android:name=".SetupActivity"
             android:label="@string/app_name"

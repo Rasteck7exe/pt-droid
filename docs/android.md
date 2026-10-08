@@ -77,10 +77,19 @@ Al conectar un mando se ocultan; al desconectarlo vuelven. Los avisos de botones
   almacenamiento interno la primera vez que abres cada versión nueva (`src/engine/platform/android_support.cpp`); esa
   primera apertura tarda unos segundos más.
 
-## Logs
+## Logs y crashes
 
 - `pt.log` queda en `/storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/pt.log` (accesible por USB).
 - En vivo: `adb logcat -s pt SDL`
+- Si el juego se cierra de golpe (crash, falta de memoria o se congela), al abrir la app otra vez la pantalla de inicio
+  dice el motivo (el registro de Android, `ApplicationExitInfo`), muestra las últimas líneas del log y tiene
+  **Compartir log**: un archivo con el dispositivo, el motivo, lo legible del tombstone y `pt.log`.
+- Un crash nativo queda escrito en `pt.log` por el propio juego (`InstallCrashHandler` en
+  `src/engine/platform/android_support.cpp`): la señal, la dirección, `pc`/`lr` y el backtrace con offsets dentro de
+  `libmain.so`. Cada release trae `libmain-<versión>-symbols.so.xz`, la librería sin strip, para traducirlos:
+
+      xz -d libmain-0.1.N-symbols.so.xz
+      llvm-addr2line -Cfie libmain-0.1.N-symbols.so 0x<offset>
 
 ## Compilar a mano
 

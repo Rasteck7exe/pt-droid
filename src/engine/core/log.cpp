@@ -65,6 +65,11 @@ void LogWrite(LogLevel level, std::string_view text) {
     }
 }
 
+int LogFileDescriptor() {
+    FILE* file = g_log_file;
+    return file ? fileno(file) : -1;
+}
+
 void LogSetTick(uint64_t tick) {
     std::lock_guard lock(g_log_mutex);
     g_tick = tick;

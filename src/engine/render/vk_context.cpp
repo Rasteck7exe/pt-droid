@@ -357,6 +357,18 @@ bool Context::Init(SDL_Window* window, bool validation) {
         return false;
     }
     volkLoadDevice(device);
+    if (!validation) {
+        // VK_EXT_debug_utils is enabled only with the validation layer. Some drivers (Adreno on Android) still hand out
+        // its entry points, and calling them without the extension crashes, so the labels are switched off here.
+        vkCmdBeginDebugUtilsLabelEXT = nullptr;
+        vkCmdEndDebugUtilsLabelEXT = nullptr;
+        vkCmdInsertDebugUtilsLabelEXT = nullptr;
+        vkQueueBeginDebugUtilsLabelEXT = nullptr;
+        vkQueueEndDebugUtilsLabelEXT = nullptr;
+        vkQueueInsertDebugUtilsLabelEXT = nullptr;
+        vkSetDebugUtilsObjectNameEXT = nullptr;
+        vkSetDebugUtilsObjectTagEXT = nullptr;
+    }
     vkGetDeviceQueue(device, queue_family, 0, &queue);
     g_checkpoints = checkpoints && vkCmdSetCheckpointNV;
 

@@ -1,6 +1,7 @@
 package com.rasteck7.ptdroid;
 
 import android.app.Activity;
+import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
@@ -62,12 +63,15 @@ public class SetupActivity extends Activity {
     private ProgressBar progress;
     private LinearLayout buttons;
     private volatile boolean copying = false;
+    private ApplicationExitInfo lastExit;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         targetDir = new File(getExternalFilesDir(null), "CUSA01127");
-        if (haveGame()) {
+        // the last run crashed, ran out of memory or hung: say so and offer the log before starting again
+        lastExit = CrashReport.lastBadExit(this);
+        if (haveGame() && lastExit == null) {
             startGame();
             return;
         }
@@ -78,7 +82,7 @@ public class SetupActivity extends Activity {
     protected void onResume() {
         super.onResume();
         // back from the all files access screen, or the files were copied over USB meanwhile
-        if (status != null && !copying && haveGame()) {
+        if (status != null && !copying && lastExit == null && haveGame()) {
             startGame();
         }
     }
@@ -102,8 +106,32 @@ public class SetupActivity extends Activity {
     }
 
     private void startGame() {
+        CrashReport.markSeen(this, lastExit);
         startActivity(new Intent(this, PTActivity.class));
         finish();
+    }
+
+    private void shareLog() {
+        try {
+            File report = CrashReport.write(this, lastExit);
+            Uri uri = LogProvider.uriFor(report);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.putExtra(Intent.EXTRA_SUBJECT, "PT Droid log");
+            send.setClipData(ClipData.newRawUri("pt-droid-log", uri));
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, "Compartir log"));
+        } catch (Exception e) {
+            status.setText("No pude preparar el log: " + e.getMessage());
+        }
+    }
+
+    private void deleteGameFiles() {
+        for (String name : GAME_FILES) {
+            new File(targetDir, name).delete();
+        }
+        new File(targetDir, "source.txt").delete();
     }
 
     // ---- the screen ------------------------------------------------------------------------------------------------
@@ -147,6 +175,37 @@ public class SetupActivity extends Activity {
         scroll.addView(column);
 
         column.addView(text("PT Droid", 26, true));
+        final boolean installed = haveGame();
+        if (lastExit != null) {
+            TextView crash = text("La última vez el juego " + CrashReport.reasonText(lastExit) + ".", 17, true);
+            crash.setTextColor(Color.rgb(255, 140, 120));
+            column.addView(crash);
+            String tail = CrashReport.logTail(this, 16);
+            if (!tail.isEmpty()) {
+                TextView log = text(tail, 11, false);
+                log.setTypeface(Typeface.MONOSPACE);
+                log.setTextIsSelectable(true);
+                log.setBackgroundColor(Color.rgb(28, 28, 28));
+                log.setPadding(dp(10), dp(8), dp(10), dp(8));
+                column.addView(log);
+            }
+            column.addView(button("Compartir log", v -> shareLog()));
+            if (installed) {
+                column.addView(button("Jugar otra vez", v -> startGame()));
+                column.addView(button("Borrar los archivos del juego y volver a importarlos", v -> {
+                    deleteGameFiles();
+                    CrashReport.markSeen(this, lastExit);
+                    lastExit = null;
+                    buildUi();
+                }));
+            }
+        }
+        if (installed) {
+            status = text("", 14, false);
+            column.addView(status);
+            setContentView(scroll);
+            return;
+        }
         column.addView(text("Para jugar necesitas tu copia de P.T. (CUSA01127).\n\n"
                 + "Elige el PKG del juego (fake PKG) y la app saca de él chunk1.psarc, texture.qar y "
                 + "pathid_list_ps4.bin, como el instalador de PC. Si ya los tienes extraídos, elige la carpeta o los "
@@ -159,6 +218,9 @@ public class SetupActivity extends Activity {
         buttons.addView(button("Elegir la carpeta (con el PKG o los archivos)", v -> pickFolder()));
         buttons.addView(button("Elegir los 3 archivos", v -> pickFiles()));
         buttons.addView(button("Usar " + SHARED_DIR + " (acceso a todos los archivos)", v -> requestAllFilesAccess()));
+        if (lastExit == null && CrashReport.logFile(this).isFile()) {
+            buttons.addView(button("Compartir log", v -> shareLog()));
+        }
         buttons.addView(button("Reintentar", v -> {
             if (haveGame()) {
                 startGame();

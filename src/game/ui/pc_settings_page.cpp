@@ -638,7 +638,7 @@ void PcSettingsPage::Apply(UifView& view, int language) const {
     }
     std::string_view note = current ? ShownNote(*current) : std::string_view();
     if (current && current->action && confirming_) {
-        note = "pc_note_reset_confirm";
+        note = current->confirm_note.empty() ? std::string_view("pc_note_reset_confirm") : std::string_view(current->confirm_note);
     }
     if (quit_selected) note = confirming_ ? "pc_note_quit_confirm" : "pc_note_quit";
     if (source_ && std::getenv("PT_AUDIT_PC_DESCRIPTIONS")) view.State(help_).description_samples = source_->DescriptionSamples();

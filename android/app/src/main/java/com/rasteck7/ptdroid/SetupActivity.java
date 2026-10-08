@@ -5,6 +5,9 @@ import android.app.ApplicationExitInfo;
 import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Intent;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -57,6 +60,7 @@ public class SetupActivity extends Activity {
     private static final int PICK_FOLDER = 1;
     private static final int PICK_FILES = 2;
     private static final int PICK_PKG = 3;
+    private static final int PICK_DRIVER = 4;
 
     private File targetDir;
     private TextView status;
@@ -64,6 +68,8 @@ public class SetupActivity extends Activity {
     private LinearLayout buttons;
     private volatile boolean copying = false;
     private ApplicationExitInfo lastExit;
+    // opened from the "GPU driver" shortcut: stay on this screen instead of starting the game
+    private boolean driverScreen;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,18 +77,40 @@ public class SetupActivity extends Activity {
         targetDir = new File(getExternalFilesDir(null), "CUSA01127");
         // the last run crashed, ran out of memory or hung: say so and offer the log before starting again
         lastExit = CrashReport.lastBadExit(this);
-        if (haveGame() && lastExit == null) {
+        driverScreen = getIntent().hasExtra("gpu_driver") && GpuDriver.supported();
+        publishDriverShortcut();
+        if (haveGame() && lastExit == null && !driverScreen) {
             startGame();
             return;
         }
         buildUi();
     }
 
+    // the icon's long-press "GPU driver" entry, only on Adreno phones (a static shortcut cannot be conditional)
+    private void publishDriverShortcut() {
+        ShortcutManager manager = getSystemService(ShortcutManager.class);
+        if (manager == null) {
+            return;
+        }
+        try {
+            if (GpuDriver.supported()) {
+                Intent intent = new Intent(this, SetupActivity.class).setAction(Intent.ACTION_MAIN).putExtra("gpu_driver", true);
+                manager.setDynamicShortcuts(java.util.Collections.singletonList(
+                        new ShortcutInfo.Builder(this, "gpu_driver").setShortLabel(getString(R.string.shortcut_gpu_driver))
+                                .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher)).setIntent(intent).build()));
+            } else {
+                manager.removeAllDynamicShortcuts();
+            }
+        } catch (RuntimeException ignored) {
+            // shortcuts are a convenience; the game's settings page has the same option
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
         // back from the all files access screen, or the files were copied over USB meanwhile
-        if (status != null && !copying && lastExit == null && haveGame()) {
+        if (status != null && !copying && lastExit == null && !driverScreen && haveGame()) {
             startGame();
         }
     }
@@ -200,6 +228,12 @@ public class SetupActivity extends Activity {
                 }));
             }
         }
+        if (installed && lastExit == null) {
+            column.addView(button("Jugar", v -> startGame()));
+        }
+        if (GpuDriver.supported()) {
+            addDriverSection(column);
+        }
         if (installed) {
             status = text("", 14, false);
             column.addView(status);
@@ -243,6 +277,45 @@ public class SetupActivity extends Activity {
         column.addView(text("Carpeta de la app: " + targetDir.getAbsolutePath(), 12, false));
 
         setContentView(scroll);
+    }
+
+    // ---- custom GPU driver ------------------------------------------------------------------------------------------
+
+    private void addDriverSection(LinearLayout column) {
+        String name = GpuDriver.name(this);
+        column.addView(text("Driver de GPU", 17, true));
+        column.addView(text(name == null
+                ? "Usando el del teléfono. Puedes instalar uno propio, por ejemplo un Turnip (Mesa) para Adreno, desde un .zip "
+                        + "con su meta.json y su .so. Solo funciona en GPU Adreno. Si el juego no arranca con él, la siguiente "
+                        + "vez vuelve solo al del teléfono."
+                : "Instalado: " + name, 14, false));
+        column.addView(button(name == null ? "Instalar un driver (.zip)" : "Cambiar el driver (.zip)", v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            startActivityForResult(intent, PICK_DRIVER);
+        }));
+        if (name != null) {
+            column.addView(button("Volver al driver del teléfono", v -> {
+                GpuDriver.deleteRecursively(GpuDriver.dir(this));
+                buildUi();
+            }));
+        }
+    }
+
+    /** Unpacks the picked driver package into the private folder, replacing the one installed, on a worker thread. */
+    private void installDriver(Uri uri) {
+        copying = true;
+        new Thread(() -> {
+            String message = GpuDriver.install(this, uri);
+            runOnUiThread(() -> {
+                copying = false;
+                buildUi();
+                if (message != null && status != null) {
+                    status.setText(message);
+                }
+            });
+        }).start();
     }
 
     private void pickFolder() {
@@ -359,6 +432,10 @@ public class SetupActivity extends Activity {
         }
         if (requestCode == PICK_PKG && data.getData() != null) {
             importPkg(data.getData());
+            return;
+        }
+        if (requestCode == PICK_DRIVER && data.getData() != null) {
+            installDriver(data.getData());
             return;
         }
         Map<String, Source> found = new HashMap<>();

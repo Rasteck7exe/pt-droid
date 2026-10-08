@@ -13,9 +13,12 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_system.h>
 
+#include <adrenotools/driver.h>
+
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -345,6 +348,113 @@ void InstallCrashHandler() {
 bool HasAllFilesAccess() { return CallActivity("hasFilesAccess", "()Z"); }
 
 void RequestAllFilesAccess() { CallActivity("requestFilesAccess", "()V"); }
+
+namespace {
+
+// <internal storage>/gpu_driver: the driver package's files and main.txt, the file name of its main library; the setup
+// screen writes them (SetupActivity.java). Internal storage is what adrenotools requires: any app could tamper with
+// removable storage.
+std::filesystem::path GpuDriverDir() {
+    const char* internal = SDL_GetAndroidInternalStoragePath();
+    return internal ? Utf8(internal) / "gpu_driver" : std::filesystem::path();
+}
+
+void* g_gpu_driver = nullptr;
+
+}  // namespace
+
+namespace {
+unsigned g_gpu_vendor = 0;
+}
+
+void SetGpuVendor(unsigned vendor_id) { g_gpu_vendor = vendor_id; }
+
+bool IsAdrenoGpu() { return g_gpu_vendor == 0x5143; }
+
+std::string GpuDriverName() {
+    const std::filesystem::path dir = GpuDriverDir();
+    std::ifstream main(dir / "main.txt");
+    std::string library;
+    if (dir.empty() || !std::getline(main, library) || library.empty()) return {};
+    std::ifstream meta(dir / "meta.json");
+    const std::string text((std::istreambuf_iterator<char>(meta)), std::istreambuf_iterator<char>());
+    // meta.json is a flat object: the first "name" followed by a colon and a quote is the field
+    for (size_t at = text.find("\"name\""); at != std::string::npos; at = text.find("\"name\"", at + 1)) {
+        size_t value = text.find_first_not_of(" \t\r\n", at + 6);
+        if (value == std::string::npos || text[value] != ':') continue;
+        value = text.find_first_not_of(" \t\r\n", value + 1);
+        if (value == std::string::npos || text[value] != '"') break;
+        const size_t end = text.find('"', value + 1);
+        if (end != std::string::npos && end > value + 1) return text.substr(value + 1, end - value - 1);
+        break;
+    }
+    return library;
+}
+
+void PickGpuDriver() { CallActivity("pickGpuDriver", "()V"); }
+
+void RemoveGpuDriver() {
+    std::error_code ec;
+    std::filesystem::remove_all(GpuDriverDir(), ec);
+}
+
+void* OpenCustomGpuDriver(std::string& error) {
+    error.clear();
+    const std::filesystem::path dir = GpuDriverDir();
+    std::string library;
+    std::error_code ec;
+    if (dir.empty() || !std::filesystem::exists(dir / "main.txt", ec)) return nullptr;
+    std::getline(std::ifstream(dir / "main.txt"), library);
+    // only a plain file name, never a path that leads out of the folder
+    const std::filesystem::path name = Utf8(library.c_str());
+    if (library.empty() || name.filename() != name || library == "." || library == ".." ||
+        !std::filesystem::exists(dir / name, ec)) {
+        error = "the installed driver is missing or its name is invalid; install it again";
+        return nullptr;
+    }
+    if (std::filesystem::exists(dir / ".trial", ec)) {
+        LogWarn("android: the custom GPU driver {} did not get the renderer started last time; using the phone's own", library);
+        std::filesystem::remove_all(dir, ec);
+        return nullptr;
+    }
+    std::ofstream(dir / ".trial").put('\n');
+    // hookLibDir is the app's native library directory (where libmain.so is), which also holds libmain_hook.so and
+    // libhook_impl.so
+    Dl_info info{};
+    if (!dladdr(reinterpret_cast<void*>(&OpenCustomGpuDriver), &info) || !info.dli_fname) {
+        error = "cannot find the app's library folder";
+        return nullptr;
+    }
+    const std::string hooks = std::filesystem::path(info.dli_fname).parent_path().string() + "/";
+    const std::string driver_dir = dir.string() + "/";
+    void* handle = adrenotools_open_libvulkan(RTLD_NOW | RTLD_LOCAL, ADRENOTOOLS_DRIVER_CUSTOM, nullptr, hooks.c_str(),
+                                              driver_dir.c_str(), library.c_str(), nullptr, nullptr);
+    if (!handle) {
+        error = "adrenotools could not load the driver (an old Android version, or a device it does not support)";
+        return nullptr;
+    }
+    void* get_proc = dlsym(handle, "vkGetInstanceProcAddr");
+    if (!get_proc) {
+        dlclose(handle);
+        error = "the custom driver has no vkGetInstanceProcAddr";
+        return nullptr;
+    }
+    g_gpu_driver = handle;
+    LogInfo("android: custom GPU driver {}", library);
+    return get_proc;
+}
+
+bool CustomGpuDriverActive() { return g_gpu_driver != nullptr; }
+
+void CloseCustomGpuDriver() {
+    if (g_gpu_driver) dlclose(g_gpu_driver);
+    g_gpu_driver = nullptr;
+}
+
+void EndGpuDriverTrial() {
+    std::error_code ec;
+    if (g_gpu_driver) std::filesystem::remove(GpuDriverDir() / ".trial", ec);
+}
 
 }
 

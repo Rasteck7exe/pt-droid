@@ -132,7 +132,7 @@ against it. Thanks to its developers.
 The port is built on SDL3, Vulkan (volk, VMA), glm, Dear ImGui, stb, Lua 5.1, libogg and libvorbis, whisper.cpp with
 OpenAI's Whisper model and the Silero VAD for the voice part, Real-ESRGAN with ncnn for the enhanced textures, AMD
 FidelityFX, NVIDIA DLSS and Intel XeSS for the upscalers, the Khronos OpenXR loader for VR, HarfBuzz on Linux and the
-Noto fonts for the added languages, and LibOrbisPkg in the installer. Their notices ship in `licenses/` next to the
+Noto fonts for the added languages, LibOrbisPkg in the installer and libadrenotools in the Android build. Their notices ship in `licenses/` next to the
 executable.
 
 ## License

@@ -1,0 +1,46 @@
+#version 460
+#include "common.glsl"
+
+/* luminance.comp without shared memory or barriers: one invocation sums a whole 32x32 tile and writes the same
+   partial[tile] the CPU reads (SceneRenderer::SumLuminance). The Adreno 830 driver returned garbage from the
+   shared-memory reduction of luminance.comp, which drove the auto exposure to its minimum (docs/android.md). */
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform PassPush {
+    uvec4 ids;
+    vec4 f0;
+    vec4 f1;
+    vec4 f2;
+    mat4 m;
+} pass;
+
+layout(std430, set = 1, binding = 5) buffer LuminanceOut {
+    vec2 partial[];
+};
+
+void main() {
+    uvec2 tiles = pass.ids.xy;
+    uvec2 tile = gl_GlobalInvocationID.xy;
+    if (tile.x >= tiles.x || tile.y >= tiles.y) {
+        return;
+    }
+    ivec2 size = ivec2(ImgSize(IMG_DIFFUSE));
+    ivec2 base = ivec2(tile) * 32;
+    ivec2 end = min(base + 32, size);
+    vec2 acc = vec2(0.0);
+    for (int y = base.y; y < end.y; ++y) {
+        for (int x = base.x; x < end.x; ++x) {
+            ivec2 p = ivec2(x, y);
+            float depth = ImgFetch(IMG_DEPTH, p).x;
+            // reverse Z: 0 is the cleared far plane; anything outside (0, 1] is not a surface
+            if (IsFinite(depth) && depth > 0.0 && depth <= 1.0) {
+                float luma = Luma709(ImgFetch(IMG_DIFFUSE, p).rgb);
+                if (IsFinite(luma)) {
+                    acc += vec2(clamp(luma, 0.0, 65504.0), 1.0);
+                }
+            }
+        }
+    }
+    partial[tile.y * tiles.x + tile.x] = acc;
+}

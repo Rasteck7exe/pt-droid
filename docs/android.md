@@ -66,6 +66,10 @@ Al conectar un mando se ocultan; al desconectarlo vuelven. Los avisos de botones
 - **Texturas BC**: la mayoría de los drivers de Android no exponen los formatos BC que usa el juego. En ese caso se
   decodifican en la CPU al cargarse (`src/engine/render/bc_decode.cpp`, con bcdec), lo que usa más memoria de video que en
   PC. El log dice si el GPU las soporta (`vulkan: BC textures ...`).
+- **Exposición automática**: el brillo de la escena se mide con `shaders/luminance_serial.comp` (y el color del reflejo
+  con `reflect_colour_serial.comp`), que no usan memoria compartida: en el Adreno 830 la versión de PC devolvía basura y
+  la imagen se iba a negro. Una medición con valores imposibles se descarta (el log lo dice). `PT_REDUCE=shared` o
+  `PT_REDUCE=serial` fuerza una u otra en cualquier plataforma.
 - **Pantalla**: siempre horizontal; el swapchain usa el tamaño de la ventana y el compositor de Android se encarga de la
   rotación (`src/engine/render/vk_context.cpp`).
 - **Voz**: whisper.cpp va enlazado dentro de `libmain.so` con un solo backend ARM64. La primera vez que el juego abre el

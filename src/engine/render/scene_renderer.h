@@ -294,6 +294,10 @@ private:
         uint32_t groups = 0;
         uint32_t unwritten = 0;
         uint32_t invalid = 0;
+        uint32_t samples = 0;
+        uint32_t sample_index[3] = {};
+        glm::vec2 sample[3] = {};
+        bool Bad() const { return unwritten > 0 || invalid > 0; }
     };
     LuminanceSum SumLuminance(FrameSlot& slot);
     void ReportLuminance(const char* where, const LuminanceSum& l);
@@ -574,6 +578,12 @@ private:
     bool adaptation_valid_ = false;
     bool ev_pinned_ = false;
     float exposure_ = 1.0f;
+#if defined(__ANDROID__)
+    static constexpr bool kSerialReduceDefault = true;
+#else
+    static constexpr bool kSerialReduceDefault = false;
+#endif
+    bool serial_reduce_ = kSerialReduceDefault;
     uint32_t luminance_reports_ = 0;
     uint32_t exposure_resets_ = 0;
     uint32_t measurements_ = 0;

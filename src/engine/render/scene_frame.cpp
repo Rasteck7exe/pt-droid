@@ -1509,8 +1509,14 @@ void SceneRenderer::RecordLuminance(VkCommandBuffer cmd) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, luminance_);
     BindSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
     gpu::PassPush push;
+    push.ids = glm::uvec4(gx, gy, 0, 0);
     PushConstants(cmd, &push, sizeof(push));
-    vkCmdDispatch(cmd, gx, gy, 1);
+    if (serial_reduce_) {
+        // luminance_serial.comp: one invocation per 32x32 tile, 8x8 tiles a workgroup
+        vkCmdDispatch(cmd, (gx + 7) / 8, (gy + 7) / 8, 1);
+    } else {
+        vkCmdDispatch(cmd, gx, gy, 1);
+    }
     VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
@@ -2212,11 +2218,11 @@ void SceneRenderer::SettleExposure(const ExposureSettings& settings) {
     });
     const LuminanceSum l = SumLuminance(slot);
     adaptation_valid_ = true;
-    if (l.unwritten > 0 || l.invalid > 0) {
+    if (l.Bad()) {
         ReportLuminance("settle", l);
     }
     SanitizeExposure(settings);
-    if (!(l.count > 0.0) || !std::isfinite(l.sum)) {
+    if (l.Bad() || !(l.count > 0.0) || !std::isfinite(l.sum)) {
         LogInfo("scene renderer: exposure not settled, nothing measured ({} groups), ev stays {:.2f}", l.groups, ev_);
         return;
     }

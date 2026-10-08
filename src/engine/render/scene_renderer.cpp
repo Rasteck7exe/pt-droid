@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <fstream>
 
 #include "engine/assets/ftex.h"
@@ -335,8 +336,15 @@ bool SceneRenderer::CreatePipelines() {
     forward_ = CreateGraphicsPipeline(device_, forward);
     forward_emissive_ = CreateGraphicsPipeline(device_, forward);
 
-    luminance_ = CreateComputePipeline(device_, layout_, "luminance.comp");
-    reflect_colour_ = CreateComputePipeline(device_, layout_, "reflect_colour.comp");
+    // The shared-memory reductions came back as garbage on the Adreno 830, so Android uses the serial versions;
+    // PT_REDUCE=serial or PT_REDUCE=shared picks one anywhere
+    serial_reduce_ = kSerialReduceDefault;
+    if (const char* reduce = std::getenv("PT_REDUCE")) {
+        serial_reduce_ = std::strcmp(reduce, "serial") == 0;
+    }
+    luminance_ = CreateComputePipeline(device_, layout_, serial_reduce_ ? "luminance_serial.comp" : "luminance.comp");
+    reflect_colour_ = CreateComputePipeline(device_, layout_, serial_reduce_ ? "reflect_colour_serial.comp" : "reflect_colour.comp");
+    LogInfo("scene renderer: {} luminance and reflection reductions", serial_reduce_ ? "serial" : "shared-memory");
 
     PipelineDesc velocity;
     velocity.layout = layout_;
@@ -1195,8 +1203,11 @@ void SceneRenderer::ReadMeasurements(FrameSlot& slot, float dt, const ExposureSe
     const LuminanceSum l = SumLuminance(slot);
     slot.measured = false;
     ++measurements_;
-    if (l.unwritten > 0 || l.invalid > 0) {
+    // a measurement with any group the GPU got wrong is not used at all: garbage that looks valid drove the exposure
+    // to its minimum (a black screen) on the Adreno 830
+    if (l.Bad()) {
         ReportLuminance("frame", l);
+        return;
     }
     if (!(l.count > 0.0) || !std::isfinite(l.sum)) {
         return;
@@ -1237,12 +1248,14 @@ SceneRenderer::LuminanceSum SceneRenderer::SumLuminance(FrameSlot& slot) {
     constexpr float kGroupPixels = 32.0f * 32.0f;
     for (uint32_t i = 0; i < slot.luminance_groups; ++i) {
         const glm::vec2 p = partial[i];
-        if (p.y < 0.0f) {
-            ++l.unwritten;
-            continue;
-        }
-        if (!std::isfinite(p.x) || !std::isfinite(p.y) || p.x < 0.0f || p.y > kGroupPixels) {
-            ++l.invalid;
+        const bool unwritten = p.x == 0.0f && p.y == -1.0f;
+        if (unwritten || !std::isfinite(p.x) || !std::isfinite(p.y) || p.x < 0.0f || p.y < 0.0f || p.y > kGroupPixels) {
+            ++(unwritten ? l.unwritten : l.invalid);
+            if (l.samples < 3) {
+                l.sample_index[l.samples] = i;
+                l.sample[l.samples] = p;
+                ++l.samples;
+            }
             continue;
         }
         l.sum += p.x;
@@ -1256,8 +1269,13 @@ void SceneRenderer::ReportLuminance(const char* where, const LuminanceSum& l) {
         return;
     }
     ++luminance_reports_;
-    LogWarn("scene renderer: luminance ({}) has {} unwritten and {} invalid of {} groups (sum {}, {} pixels){}", where, l.unwritten, l.invalid, l.groups,
-            l.sum, l.count, luminance_reports_ == 12 ? ", not reported again" : "");
+    std::string samples;
+    for (uint32_t i = 0; i < l.samples; ++i) {
+        samples += std::format(" [{}]=({}, {})", l.sample_index[i], l.sample[i].x, l.sample[i].y);
+    }
+    LogWarn("scene renderer: luminance ({}, {}) has {} unwritten and {} invalid of {} groups, measurement dropped (sum {}, {} pixels);{}{}", where,
+            serial_reduce_ ? "serial" : "shared", l.unwritten, l.invalid, l.groups, l.sum, l.count, samples,
+            luminance_reports_ == 12 ? "; not reported again" : "");
 }
 
 void SceneRenderer::SanitizeExposure(const ExposureSettings& settings) {

@@ -58,6 +58,7 @@
 #include "engine/script/lua_vm.h"
 #include "engine/ui/asset_browser.h"
 #include "engine/core/resource_path.h"
+#include "engine/platform/android_support.h"
 #include "engine/platform/settings.h"
 #include "engine/platform/graphics_presets.h"
 #include "engine/platform/virtual_pad.h"
@@ -712,6 +713,45 @@ std::filesystem::path FindGameDir(const Options& options) {
             }
         }
     }
+#ifdef __ANDROID__
+    // docs/android.md: the game files go to /storage/emulated/0/PT/CUSA01127 (with all files access) or to the app's own
+    // external folder (no permission needed). Until they are there, a dialog says where, with a button for the permission.
+    for (const std::filesystem::path& candidate : pt::android::GameDirCandidates()) {
+        if (LooksLikeGameDir(candidate)) {
+            return candidate;
+        }
+    }
+    for (;;) {
+        const bool access = pt::android::HasAllFilesAccess();
+        std::string text = "No encontr\xC3\xA9 los archivos de P.T.\n\nCopia chunk1.psarc, texture.qar y pathid_list_ps4.bin "
+                           "de tu CUSA01127 a esta carpeta del tel\xC3\xA9" "fono:\n\n" +
+                           pt::android::SharedGameDir().string() + "\n\n";
+        if (!access) {
+            text += "Para leer esa carpeta, la app necesita el permiso \"Acceso a todos los archivos\" (bot\xC3\xB3n Dar permiso).\n\n";
+        }
+        text += "Sin permiso tambi\xC3\xA9n sirve esta carpeta (por USB o adb):\n\n" + pt::android::AppGameDir().string();
+        std::vector<SDL_MessageBoxButtonData> buttons;
+        buttons.push_back({SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Reintentar"});
+        if (!access) {
+            buttons.push_back({0, 2, "Dar permiso"});
+        }
+        buttons.push_back({SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Salir"});
+        const SDL_MessageBoxData box{SDL_MESSAGEBOX_INFORMATION, nullptr, "P.T.", text.c_str(), static_cast<int>(buttons.size()), buttons.data(),
+                                     nullptr};
+        int pressed = 0;
+        if (!SDL_ShowMessageBox(&box, &pressed) || pressed <= 0) {
+            break;
+        }
+        if (pressed == 2) {
+            pt::android::RequestAllFilesAccess();
+        }
+        for (const std::filesystem::path& candidate : pt::android::GameDirCandidates()) {
+            if (LooksLikeGameDir(candidate)) {
+                return candidate;
+            }
+        }
+    }
+#endif
 #ifdef _WIN32
     if (!options.headless && SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
         std::filesystem::path picked;
@@ -4306,6 +4346,12 @@ int main(int argc, char** argv) {
                           !options.texture_test.empty() || options.list_pads;
         const std::filesystem::path user = tool ? std::filesystem::path() : UserDataDir();
         log_path = user.empty() ? std::filesystem::path("pt.log") : user / "pt.log";
+#ifdef __ANDROID__
+        // the app's external folder, readable over USB (Android/data/com.rasteck7.ptdroid/files/pt.log), unlike internal storage
+        if (const char* external = SDL_GetAndroidExternalStoragePath()) {
+            log_path = std::filesystem::path(reinterpret_cast<const char8_t*>(external)) / "pt.log";
+        }
+#endif
     }
     g_output_dir = log_path.parent_path();
     pt::LogSetFile(log_path.string().c_str());
@@ -4315,6 +4361,15 @@ int main(int argc, char** argv) {
         return 3;
     }
     pt::LogInfo("pt-port version {} ({})", pt::update::CurrentVersion(), pt::update::Platform());
+#ifdef __ANDROID__
+    // docs/android.md: landscape only, and the shaders, fonts and voice models copied out of the APK on a new build's
+    // first start (pt::ExecutableDir() is that copy)
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+    if (!pt::android::PrepareResources()) {
+        pt::LogError("android: the resources in the APK could not be copied out");
+    }
+#endif
 #ifdef _WIN32
     pt::InstallCrashReporting(g_output_dir, PT_BUILD_ID);
     if (const char* test = std::getenv("PT_TEST_CRASH")) {
@@ -4409,9 +4464,12 @@ int main(int argc, char** argv) {
         if (!app.settings_path.empty() && !pt::LoadAppSettings(app.settings_path, app.settings)) {
             pt::SaveAppSettings(app.settings_path, app.settings);
         }
+#ifndef __ANDROID__
+        // Android: no update check, the upstream releases are desktop builds (docs/android.md)
         if (app.settings.network.check_updates && !options.no_update_check) {
             app.updates.Start();
         }
+#endif
     }
     if (!options.fake_update.empty() && !options.no_update_check) {
         app.updates.Fake(options.fake_update);

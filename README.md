@@ -91,6 +91,11 @@ Mods
 - A `mods` folder next to the executable can replace game files, textures and sounds, and run Lua scripts that react
   to game events. See docs/modding.md and docs/lua_api.md.
 
+## Android (PT Droid)
+
+This fork adds an Android ARM64 build: the same game as `libmain.so` in an APK, built by GitHub Actions on every push to
+`android-port`. It needs a phone with Vulkan 1.3 and your own three game archives; see docs/android.md (in Spanish).
+
 ## Building from source
 
 Windows: Visual Studio 2022 Build Tools, LLVM (clang-cl), the Vulkan SDK, CMake 3.28 and Ninja. Then

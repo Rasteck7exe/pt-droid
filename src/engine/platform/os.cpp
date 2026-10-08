@@ -103,6 +103,14 @@ std::string GetEnv(const char* name) {
 
 uint32_t ProcessId() { return static_cast<uint32_t>(getpid()); }
 
+#ifdef __ANDROID__
+// Android: an app cannot start helper executables of its own (the desktop's texture tool and preview runs); they report
+// "not started" and the features fall back as when the tool is missing
+ProcessResult RunProcess(const std::filesystem::path&, const std::vector<std::string>&, const std::filesystem::path&,
+                         const std::filesystem::path&, const std::atomic<bool>&, std::chrono::milliseconds) {
+    return {};
+}
+#else
 ProcessResult RunProcess(const std::filesystem::path& program, const std::vector<std::string>& args, const std::filesystem::path& working_dir,
                          const std::filesystem::path& log, const std::atomic<bool>& cancel, std::chrono::milliseconds timeout) {
     ProcessResult result;
@@ -143,6 +151,7 @@ ProcessResult RunProcess(const std::filesystem::path& program, const std::vector
     result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
     return result;
 }
+#endif
 
 FileLock::FileLock(const std::filesystem::path& path) {
     const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0644);

@@ -6,6 +6,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -170,11 +171,21 @@ private:
             return true;
         }
         double d = 0.0;
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION < 200000
+        // libc++ before LLVM 20 (the Android NDK's) has no floating point from_chars; text_ is NUL-terminated
+        char* end = nullptr;
+        d = std::strtod(text_.c_str() + pos_, &end);
+        if (end == text_.c_str() + pos_) {
+            return false;
+        }
+        pos_ = static_cast<size_t>(end - text_.c_str());
+#else
         const auto result = std::from_chars(text_.data() + pos_, text_.data() + text_.size(), d);
         if (result.ec != std::errc()) {
             return false;
         }
         pos_ = static_cast<size_t>(result.ptr - text_.data());
+#endif
         out.type = Number;
         std::memcpy(&out.data, &d, 8);
         return true;

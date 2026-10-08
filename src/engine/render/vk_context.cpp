@@ -220,6 +220,54 @@ bool Context::Init(SDL_Window* window, bool validation) {
     VkPhysicalDeviceFeatures supported{};
     vkGetPhysicalDeviceFeatures(physical, &supported);
     features.features.independentBlend = supported.independentBlend;
+    {
+        // Only ask for what the driver has: phone drivers (docs/android.md) lack some of these, BC textures above all,
+        // which the texture manager then decodes on the CPU. Anything missing is logged so a failure later is traceable.
+        VkPhysicalDeviceVulkan13Features have13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+        VkPhysicalDeviceVulkan12Features have12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        have12.pNext = &have13;
+        VkPhysicalDeviceFeatures2 have{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        have.pNext = &have12;
+        vkGetPhysicalDeviceFeatures2(physical, &have);
+        std::string missing;
+        const auto keep = [&](VkBool32& wanted, VkBool32 available, const char* name) {
+            if (wanted && !available) {
+                wanted = VK_FALSE;
+                missing += missing.empty() ? std::string(name) : std::string(", ") + name;
+            }
+        };
+#define PT_KEEP(wanted, available, name) keep(wanted.name, available.name, #name)
+        PT_KEEP(features.features, have.features, samplerAnisotropy);
+        PT_KEEP(features.features, have.features, textureCompressionBC);
+        PT_KEEP(features.features, have.features, fillModeNonSolid);
+        PT_KEEP(features.features, have.features, shaderInt16);
+        PT_KEEP(features.features, have.features, shaderClipDistance);
+        PT_KEEP(features12, have12, descriptorIndexing);
+        PT_KEEP(features12, have12, runtimeDescriptorArray);
+        PT_KEEP(features12, have12, shaderSampledImageArrayNonUniformIndexing);
+        PT_KEEP(features12, have12, descriptorBindingPartiallyBound);
+        PT_KEEP(features12, have12, descriptorBindingVariableDescriptorCount);
+        PT_KEEP(features12, have12, descriptorBindingSampledImageUpdateAfterBind);
+        PT_KEEP(features12, have12, timelineSemaphore);
+        PT_KEEP(features12, have12, descriptorBindingUpdateUnusedWhilePending);
+        PT_KEEP(features12, have12, descriptorBindingStorageBufferUpdateAfterBind);
+        PT_KEEP(features12, have12, scalarBlockLayout);
+        PT_KEEP(features13, have13, dynamicRendering);
+        PT_KEEP(features13, have13, synchronization2);
+        PT_KEEP(features13, have13, shaderDemoteToHelperInvocation);
+#undef PT_KEEP
+        texture_compression_bc = features.features.textureCompressionBC == VK_TRUE;
+        if (!missing.empty()) {
+            LogWarn("vulkan: the device lacks {}", missing);
+        }
+        VkPhysicalDeviceVulkan12Properties props12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+        VkPhysicalDeviceProperties2 props2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        props2.pNext = &props12;
+        vkGetPhysicalDeviceProperties2(physical, &props2);
+        LogInfo("vulkan: BC textures {}, update-after-bind sampled images per stage {}, per set {}",
+                texture_compression_bc ? "supported" : "unsupported (CPU decode)",
+                props12.maxPerStageDescriptorUpdateAfterBindSampledImages, props12.maxDescriptorSetUpdateAfterBindSampledImages);
+    }
 
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -397,10 +445,18 @@ bool Context::CreateSwapchain(uint32_t width, uint32_t height, bool vsync) {
             present_mode == VK_PRESENT_MODE_IMMEDIATE_KHR ? "immediate" : present_mode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox" : "fifo",
             vsync ? "on" : "off");
     VkExtent2D extent = caps.currentExtent;
+#ifdef __ANDROID__
+    // Android reports currentExtent in the display's native (portrait) orientation and a rotation as currentTransform.
+    // The game renders upright at the window's size and lets the compositor rotate it (identity transform below), so the
+    // extent is the window's own size, which is also how a lower render resolution reaches the screen scaled up.
+    extent.width = std::clamp(width, std::max(caps.minImageExtent.width, 1u), std::max(caps.maxImageExtent.width, width));
+    extent.height = std::clamp(height, std::max(caps.minImageExtent.height, 1u), std::max(caps.maxImageExtent.height, height));
+#else
     if (extent.width == 0xFFFFFFFFu) {
         extent.width = std::clamp(width, caps.minImageExtent.width, caps.maxImageExtent.width);
         extent.height = std::clamp(height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
+#endif
     if (extent.width == 0 || extent.height == 0) {
         return false;
     }
@@ -420,6 +476,19 @@ bool Context::CreateSwapchain(uint32_t width, uint32_t height, bool vsync) {
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.preTransform = caps.currentTransform;
     info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+#ifdef __ANDROID__
+    // see the extent above: upright images, the compositor rotates them; Android surfaces may offer only INHERIT alpha
+    if (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+        info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    }
+    if (!(caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)) {
+        info.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) ? VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
+                                                                                                : VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+    }
+    info.imageUsage &= caps.supportedUsageFlags | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    LogInfo("vulkan: swapchain {}x{}, display transform {:#x}, format {}", extent.width, extent.height,
+            static_cast<uint32_t>(caps.currentTransform), static_cast<int>(chosen.format));
+#endif
     info.presentMode = present_mode;
     info.clipped = VK_TRUE;
     info.oldSwapchain = swapchain.handle;

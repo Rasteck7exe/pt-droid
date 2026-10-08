@@ -1,0 +1,84 @@
+plugins {
+    id 'com.android.application'
+}
+
+// the shaders, fonts and voice models the CMake build stages for the APK (cmake/android_assets.cmake)
+def ptAssetsDir = layout.buildDirectory.dir("generated/pt-assets").get().asFile
+def buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace = "com.rasteck7.ptdroid"
+    compileSdk = 35
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        applicationId = "com.rasteck7.ptdroid"
+        // Android 11: all files access for /storage/emulated/0/PT; every phone with Vulkan 1.3 runs it or newer
+        minSdk = 30
+        targetSdk = 35
+        versionCode = buildNumber
+        versionName = "0.1.${buildNumber}"
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_static",
+                          "-DANDROID_PLATFORM=android-30",
+                          "-DPT_ANDROID_ASSETS_DIR=${ptAssetsDir}",
+                          "-DPT_UPSCALERS=OFF",
+                          "-DPT_OPENXR=OFF"
+                abiFilters 'arm64-v8a'
+                // only the game; the desktop tests and tools are not built for Android
+                targets "pt"
+            }
+        }
+    }
+
+    // A development key kept in the repository so every build installs over the last one and keeps the save.
+    // It signs nothing but this personal build; it is not a secret.
+    signingConfigs {
+        dev {
+            storeFile file("pt-droid-dev.keystore")
+            storePassword "ptdroid-dev"
+            keyAlias "ptdroid"
+            keyPassword "ptdroid-dev"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.dev
+        }
+        debug {
+            signingConfig signingConfigs.dev
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("../../CMakeLists.txt")
+            version "3.31.6"
+        }
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += [ptAssetsDir]
+        }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+}
+
+// the assets come out of the native build, so they are merged after it
+android.applicationVariants.configureEach { variant ->
+    def name = variant.name.capitalize()
+    tasks.named("merge${name}Assets").configure {
+        dependsOn("externalNativeBuild${name}")
+    }
+}

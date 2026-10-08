@@ -12,6 +12,7 @@
 #include "engine/assets/enhanced_textures.h"
 #include "engine/core/log.h"
 #include "engine/fs/mods.h"
+#include "engine/render/bc_decode.h"
 
 namespace pt {
 namespace {
@@ -285,6 +286,29 @@ uint32_t TextureManager::Create(const std::string& name, VkFormat format, std::s
     }
     if (mips.empty() || images_.size() >= kMaxTextures) {
         return kWhite;
+    }
+    if (!ctx_->texture_compression_bc) {
+        // the driver cannot sample BC formats (most Android drivers): decode the levels on the CPU to the nearest
+        // uncompressed format (src/engine/render/bc_decode.h) and create the texture from those
+        const VkFormat decoded_format = BcFallbackFormat(format);
+        if (decoded_format != VK_FORMAT_UNDEFINED) {
+            static bool announced = false;
+            if (!announced) {
+                announced = true;
+                LogInfo("textures: the GPU has no BC texture support, BC textures are decoded on the CPU");
+            }
+            std::vector<std::vector<uint8_t>> decoded(mips.size());
+            std::vector<TextureMip> decoded_mips(mips.size());
+            for (size_t i = 0; i < mips.size(); ++i) {
+                if (!DecodeBcMip(format, mips[i].width, mips[i].height, mips[i].data, decoded[i])) {
+                    LogWarn("textures: {} has incomplete BC data in level {}", name, i);
+                    return kWhite;
+                }
+                decoded_mips[i] = {mips[i].width, mips[i].height, decoded[i]};
+                bc_decoded_bytes_ += decoded[i].size();
+            }
+            return Create(name, decoded_format, decoded_mips, layers, cube);
+        }
     }
     vk::Image image;
     const uint32_t mip_count = static_cast<uint32_t>(mips.size()) / layers;

@@ -133,6 +133,9 @@ std::string_view CurrentVersion() { return PT_VERSION; }
 std::string_view Platform() {
 #ifdef _WIN32
     return "windows";
+#elif defined(__ANDROID__)
+    // no Android build in the upstream releases: the update check never offers a desktop download here
+    return "android";
 #else
     return "linux";
 #endif

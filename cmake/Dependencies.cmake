@@ -2,7 +2,17 @@ include(FetchContent)
 cmake_policy(SET CMP0169 OLD)
 set(FETCHCONTENT_QUIET ON)
 
-find_package(Vulkan REQUIRED COMPONENTS glslc)
+if(ANDROID)
+  # Android (docs/android.md): the NDK's own Vulkan headers are older than volk's, so the headers come from Khronos at the
+  # version volk is pinned to; glslc is the NDK's (shader-tools), or the one given with -DVulkan_GLSLC_EXECUTABLE
+  FetchContent_Declare(vulkan_headers GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git GIT_TAG v1.4.350 GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(vulkan_headers)
+  find_program(Vulkan_GLSLC_EXECUTABLE glslc
+    HINTS "${ANDROID_NDK}/shader-tools/${ANDROID_HOST_TAG}" "${CMAKE_ANDROID_NDK}/shader-tools/linux-x86_64"
+    NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+else()
+  find_package(Vulkan REQUIRED COMPONENTS glslc)
+endif()
 find_package(Threads REQUIRED)
 
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
@@ -36,8 +46,6 @@ FetchContent_Declare(whisper URL https://github.com/ggml-org/whisper.cpp/archive
 FetchContent_Populate(whisper)
 set(PT_VOICE_DIR ${CMAKE_BINARY_DIR}/voice)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
-set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -45,10 +53,22 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(WHISPER_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+add_custom_target(pt_voice_runtime)
+if(ANDROID)
+  # Android: whisper.cpp and ggml are linked into libmain.so (VoiceRecognizer takes their functions directly, PT_WHISPER_STATIC),
+  # with one ARM64 CPU backend built for ARMv8.2 with dot product and fp16, which every Vulkan 1.3 phone has
+  set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+  set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
+  set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "" FORCE)
+  set(BUILD_SHARED_LIBS OFF)
+  add_subdirectory(${whisper_SOURCE_DIR} ${whisper_BINARY_DIR} EXCLUDE_FROM_ALL)
+  unset(BUILD_SHARED_LIBS)
+else()
+set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON)
 add_subdirectory(${whisper_SOURCE_DIR} ${whisper_BINARY_DIR} EXCLUDE_FROM_ALL)
 unset(BUILD_SHARED_LIBS)
-add_custom_target(pt_voice_runtime)
 add_dependencies(pt_voice_runtime whisper)
 # whisper.cpp names its own output folder (bin); the DLLs go to voice/ next to the models
 foreach(lib whisper ggml ggml-base)
@@ -94,6 +114,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND MSVC)
       target_compile_options(ggml-cpu-${variant} PRIVATE ${flags})
     endif()
   endforeach()
+endif()
 endif()
 set(PT_WHISPER_INCLUDE_DIRS ${whisper_SOURCE_DIR}/include ${whisper_SOURCE_DIR}/ggml/include)
 
@@ -141,6 +162,11 @@ if(MSVC)
   target_compile_options(pt_bc7enc PRIVATE /w)
 endif()
 
+# bcdec (MIT): decodes BC1-BC7 textures on the CPU for GPUs whose driver has no BC support, as most Android drivers
+# (src/engine/render/bc_decode.cpp)
+FetchContent_Declare(bcdec GIT_REPOSITORY https://github.com/iOrange/bcdec.git GIT_TAG 80859ed3b7afb1c527a2a99d70c61457bea72d0c)
+FetchContent_Populate(bcdec)
+
 file(GLOB LUA51_SOURCES ${lua51_SOURCE_DIR}/src/*.c)
 list(FILTER LUA51_SOURCES EXCLUDE REGEX ".*/(lua|luac|print)\\.c$")
 
@@ -161,7 +187,8 @@ target_include_directories(pt_thirdparty PUBLIC
   ${imgui_SOURCE_DIR}
   ${imgui_SOURCE_DIR}/backends
   ${lua51_SOURCE_DIR}/src
-  ${stb_SOURCE_DIR})
+  ${stb_SOURCE_DIR}
+  ${bcdec_SOURCE_DIR})
 target_compile_definitions(pt_thirdparty PUBLIC VK_NO_PROTOTYPES IMGUI_IMPL_VULKAN_USE_VOLK)
 if(WIN32)
   target_compile_definitions(pt_thirdparty PUBLIC VK_USE_PLATFORM_WIN32_KHR)

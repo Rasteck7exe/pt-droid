@@ -106,6 +106,21 @@ std::string LoadError() {
 
 std::string LibraryName(const char* name) { return std::string(kLibraryPrefix) + name + kLibraryExtension; }
 
+#if PT_WHISPER_STATIC
+// Android (docs/android.md): whisper.cpp and its one ARM64 CPU backend are linked into libmain.so, nothing to load
+bool LoadRuntime(const std::filesystem::path&) {
+    std::lock_guard lock(g_api_mutex);
+    if (g_api.ready) return true;
+#define PT_WHISPER_DIRECT(name) g_api.name = &::name;
+    PT_WHISPER_FUNCTIONS(PT_WHISPER_DIRECT)
+#undef PT_WHISPER_DIRECT
+    g_api.whisper_log_set(WhisperLog, nullptr);
+    g_api.cpu = "arm64 (linked)";
+    g_api.ready = true;
+    LogInfo("voice: whisper.cpp CPU code {}", g_api.cpu);
+    return true;
+}
+#else
 bool LoadRuntime(const std::filesystem::path& dir) {
     std::lock_guard lock(g_api_mutex);
     if (g_api.ready) return true;
@@ -160,6 +175,7 @@ bool LoadRuntime(const std::filesystem::path& dir) {
     LogInfo("voice: whisper.cpp CPU code ggml-cpu-{} (score {})", g_api.cpu, best_score);
     return true;
 }
+#endif
 
 void WriteSegment(const std::filesystem::path& folder, const std::vector<float>& audio) {
     static std::atomic<int> count{0};

@@ -1,0 +1,87 @@
+# Builds the Android APK of the port (docs/android.md) and publishes it as a workflow artifact and a pre-release.
+name: Android APK
+
+on:
+  push:
+    branches: [android-port, main]
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+
+      # The Android Gradle plugin uses the CMake named in android/local.properties (3.31.6, as android/app/build.gradle
+      # asks) with Ninja beside it; glslc comes from the NDK, the system one is a fallback
+      - name: CMake, Ninja and glslc
+        run: |
+          set -eu
+          dir="$RUNNER_TEMP/cmake"
+          curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz | tar xz -C "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/cmake-3.31.6-linux-x86_64" "$dir"
+          curl -fsSL -o "$RUNNER_TEMP/ninja.zip" https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip
+          unzip -o -q "$RUNNER_TEMP/ninja.zip" -d "$dir/bin"
+          "$dir/bin/cmake" --version | head -1
+          "$dir/bin/ninja" --version
+          sudo apt-get install -y -qq glslc > /dev/null || true
+          printf 'sdk.dir=%s\ncmake.dir=%s\n' "$ANDROID_HOME" "$dir" > android/local.properties
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Build the APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        id: apk
+        run: |
+          set -eu
+          version="0.1.${GITHUB_RUN_NUMBER}"
+          cp android/app/build/outputs/apk/release/app-release.apk "pt-droid-${version}.apk"
+          ls -l "pt-droid-${version}.apk"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "file=pt-droid-${version}.apk" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pt-droid-${{ steps.apk.outputs.version }}
+          path: ${{ steps.apk.outputs.file }}
+          if-no-files-found: error
+
+      # a pre-release per build, so the APK downloads straight to the phone from the Releases page
+      - name: Pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v${{ steps.apk.outputs.version }}" "${{ steps.apk.outputs.file }}" \
+            --prerelease --target "${GITHUB_SHA}" --title "PT Droid ${{ steps.apk.outputs.version }}" \
+            --notes "APK de prueba del port de P.T. para Android, rama ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Instrucciones en docs/android.md."
+
+      - name: Native build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-logs
+          path: |
+            android/app/.cxx/**/CMakeFiles/CMakeConfigureLog.yaml
+            android/app/.cxx/**/build_command_*.txt
+            android/app/.cxx/**/*_output.txt
+          if-no-files-found: ignore

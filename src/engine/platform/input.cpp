@@ -36,6 +36,10 @@ constexpr KeyBinding kKeyBindings[] = {
     {KeyAction::Act, SDL_SCANCODE_E, 0},
     {KeyAction::Act, SDL_SCANCODE_SPACE, 0},
     {KeyAction::Menu, SDL_SCANCODE_ESCAPE, 0},
+#ifdef __ANDROID__
+    // the phone's back button/gesture opens the pause menu (SDL_HINT_ANDROID_TRAP_BACK_BUTTON in main.cpp)
+    {KeyAction::Menu, SDL_SCANCODE_AC_BACK, 0},
+#endif
     {KeyAction::Confirm, SDL_SCANCODE_RETURN, 0},
     {KeyAction::Confirm, SDL_SCANCODE_SPACE, 0},
     {KeyAction::Confirm, SDL_SCANCODE_E, 0},

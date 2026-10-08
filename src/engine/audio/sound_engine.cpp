@@ -1,7 +1,9 @@
 #include "engine/audio/sound_engine.h"
 
+#if !defined(__aarch64__) && !defined(_M_ARM64)
 #include <pmmintrin.h>
 #include <xmmintrin.h>
+#endif
 
 #include <algorithm>
 #include <bit>
@@ -3501,8 +3503,15 @@ void SoundEngine::Render(float* out, uint32_t frames) {
         motion_levels_.store(0, std::memory_order_relaxed);
         return;
     }
+    // denormals flushed to zero while mixing (SSE FTZ+DAZ, ARM64 FPCR.FZ)
+#if defined(__aarch64__) || defined(_M_ARM64)
+    uint64_t csr = 0;
+    __asm__ __volatile__("mrs %0, fpcr" : "=r"(csr));
+    __asm__ __volatile__("msr fpcr, %0" : : "r"(csr | (uint64_t(1) << 24)));
+#else
     const unsigned int csr = _mm_getcsr();
     _mm_setcsr(csr | 0x8040);
+#endif
     {
         std::lock_guard lock(command_mutex_);
         command_work_.swap(commands_);
@@ -3555,7 +3564,11 @@ void SoundEngine::Render(float* out, uint32_t frames) {
         stats_.sequencers = static_cast<uint32_t>(sequencers_.size());
         stats_.music = static_cast<uint32_t>(music_.size());
     }
+#if defined(__aarch64__) || defined(_M_ARM64)
+    __asm__ __volatile__("msr fpcr, %0" : : "r"(csr));
+#else
     _mm_setcsr(csr);
+#endif
 }
 
 }

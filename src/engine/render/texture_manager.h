@@ -117,6 +117,7 @@ private:
     std::vector<std::future<void>> decode_workers_;
     double read_ms_ = 0.0;
     double upload_ms_ = 0.0;
+    uint64_t bc_decoded_bytes_ = 0;  // texels decoded from BC on the CPU (no BC support in the driver)
 };
 
 uint32_t FormatBlockBytes(VkFormat format, bool& compressed);

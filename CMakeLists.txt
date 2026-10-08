@@ -70,11 +70,22 @@ else()
   # Linux: the platform layer loads libcurl at run time (src/engine/platform/http.cpp); fonts are shaped with HarfBuzz
   target_link_libraries(pt_engine PUBLIC ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
+if(ANDROID)
+  # Android (docs/android.md): whisper.cpp is linked in (cmake/Dependencies.cmake), the log also goes to logcat
+  target_link_libraries(pt_engine PUBLIC whisper android log)
+  target_compile_definitions(pt_engine PUBLIC PT_WHISPER_STATIC=1)
+endif()
 if(MSVC)
   target_compile_options(pt_engine PRIVATE /W3 /utf-8 /EHsc)
 endif()
 
-add_executable(pt WIN32 src/main.cpp)
+if(ANDROID)
+  # the game is libmain.so, which SDL's Java activity (android/) loads and starts at SDL_main
+  add_library(pt SHARED src/main.cpp)
+  set_target_properties(pt PROPERTIES OUTPUT_NAME main)
+else()
+  add_executable(pt WIN32 src/main.cpp)
+endif()
 target_link_libraries(pt PRIVATE pt_engine)
 if(WIN32)
   target_link_libraries(pt PRIVATE dbghelp ole32 uuid)
@@ -145,7 +156,10 @@ if(MSVC)
 endif()
 
 include(cmake/Upscalers.cmake)
-include(cmake/EnhancedTextures.cmake)
+# the enhanced textures run the desktop Real-ESRGAN tool, which Android has no build of
+if(NOT ANDROID)
+  include(cmake/EnhancedTextures.cmake)
+endif()
 include(cmake/OpenXR.cmake)
 list(APPEND PT_UPSCALER_RUNTIME_FILES ${PT_OPENXR_RUNTIME_FILES})
 list(APPEND PT_UPSCALER_NOTICES ${PT_OPENXR_NOTICES})
@@ -174,6 +188,19 @@ foreach(shader ${PT_SHADERS})
 endforeach()
 add_custom_target(pt_shaders ALL DEPENDS ${PT_SPIRV_OUTPUTS})
 add_dependencies(pt pt_shaders)
+if(ANDROID)
+  # The APK carries the shaders, fonts and voice models as assets under pt/ with an index (cmake/android_assets.cmake);
+  # the game copies them to its internal storage on the first start of each build (src/engine/platform/android_support.cpp).
+  # android/app/build.gradle passes the folder and merges it into the APK's assets after the native build.
+  set(PT_ANDROID_ASSETS_DIR "" CACHE PATH "Folder the Android build fills with the game's resources for the APK")
+  if(PT_ANDROID_ASSETS_DIR)
+    add_custom_target(pt_android_assets
+      COMMAND "${CMAKE_COMMAND}" "-DSHADERS=${PT_SPIRV_DIR}" "-DFONTS=${CMAKE_SOURCE_DIR}/assets/fonts" "-DVOICE=${CMAKE_BINARY_DIR}/voice"
+              "-DOUT=${PT_ANDROID_ASSETS_DIR}" -P "${CMAKE_SOURCE_DIR}/cmake/android_assets.cmake"
+      DEPENDS pt_shaders VERBATIM)
+    add_dependencies(pt pt_android_assets)
+  endif()
+endif()
 target_compile_definitions(pt_engine PUBLIC PT_SHADER_DIR="${PT_SPIRV_DIR}" PT_VOICE_MODEL_DIR="${CMAKE_BINARY_DIR}/voice")
 target_include_directories(pt_engine PRIVATE ${PT_WHISPER_INCLUDE_DIRS})
 # whisper.cpp, ggml and its CPU variants in voice/ for every game target (tools/package.py ships them with any of these)

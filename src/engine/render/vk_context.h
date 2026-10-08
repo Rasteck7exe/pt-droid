@@ -99,6 +99,8 @@ public:
     bool memory_budget = false;
     bool device_fault = false;
     bool checkpoints = false;
+    // false when the driver cannot sample BC formats (most Android drivers): the texture manager decodes them on the CPU
+    bool texture_compression_bc = true;
     void CheckDeviceLost(VkResult result, const char* where);
 
 private:

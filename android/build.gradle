@@ -1,0 +1,5 @@
+// The Android build of the P.T. port (docs/android.md). The game itself is the CMake project at the repository root,
+// built as libmain.so; this Gradle project wraps it with SDL's Java activity into an APK.
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}

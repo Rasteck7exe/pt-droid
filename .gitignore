@@ -36,3 +36,9 @@ pt.log
 pt_imgui.ini
 installer/*/bin/
 installer/*/obj/
+
+# Android build (docs/android.md)
+android/.gradle/
+android/local.properties
+android/app/.cxx/
+*.apk

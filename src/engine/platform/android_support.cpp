@@ -18,6 +18,7 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 
@@ -361,6 +362,33 @@ std::filesystem::path GpuDriverDir() {
 void* g_gpu_driver = nullptr;
 
 }  // namespace
+
+std::string GpuDriverName() {
+    const std::filesystem::path dir = GpuDriverDir();
+    std::ifstream main(dir / "main.txt");
+    std::string library;
+    if (dir.empty() || !std::getline(main, library) || library.empty()) return {};
+    std::ifstream meta(dir / "meta.json");
+    const std::string text((std::istreambuf_iterator<char>(meta)), std::istreambuf_iterator<char>());
+    // meta.json is a flat object: the first "name" followed by a colon and a quote is the field
+    for (size_t at = text.find("\"name\""); at != std::string::npos; at = text.find("\"name\"", at + 1)) {
+        size_t value = text.find_first_not_of(" \t\r\n", at + 6);
+        if (value == std::string::npos || text[value] != ':') continue;
+        value = text.find_first_not_of(" \t\r\n", value + 1);
+        if (value == std::string::npos || text[value] != '"') break;
+        const size_t end = text.find('"', value + 1);
+        if (end != std::string::npos && end > value + 1) return text.substr(value + 1, end - value - 1);
+        break;
+    }
+    return library;
+}
+
+void PickGpuDriver() { CallActivity("pickGpuDriver", "()V"); }
+
+void RemoveGpuDriver() {
+    std::error_code ec;
+    std::filesystem::remove_all(GpuDriverDir(), ec);
+}
 
 void* OpenCustomGpuDriver(std::string& error) {
     error.clear();

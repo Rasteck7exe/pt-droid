@@ -41,6 +41,12 @@ void RequestAllFilesAccess();
 // own, opened through libadrenotools. Returns the driver's vkGetInstanceProcAddr, or null (the reason in `error`, empty when
 // none is installed) to use the system driver. The driver is on trial from here until EndGpuDriverTrial(): if the app dies
 // in between, the next start drops the driver so it cannot trap the person in a crash loop.
+// The installed driver's name for the settings page (meta.json's "name", else the library's file name); empty when none.
+std::string GpuDriverName();
+// Opens Android's file picker for a driver .zip (PTActivity.pickGpuDriver); the install happens there and applies at the
+// next start. RemoveGpuDriver() goes back to the phone's own driver at the next start.
+void PickGpuDriver();
+void RemoveGpuDriver();
 void* OpenCustomGpuDriver(std::string& error);
 bool CustomGpuDriverActive();
 // Closes the driver (the one that would not create an instance) so the system driver can be loaded instead.

@@ -2182,6 +2182,10 @@ public:
         if(id==kTextures) page_=kTexturesPage;
         if(id==kEffects) page_=kEffectsPage;
         if (id == kMods) page_ = kModsPage;
+#ifdef __ANDROID__
+        if (id == kGpuDriver) pt::android::PickGpuDriver();
+        if (id == kGpuDriverRemove) pt::android::RemoveGpuDriver();
+#endif
         if (id == kReset && game_.SavesEnabled()) {
             pt::LogInfo("save: progress reset from the PC settings page ({})", game_.ResetProgress() ? "accepted" : "failed");
         }
@@ -2271,7 +2275,7 @@ private:
         kGraphicsPreset,kRayTracing,kLighting,kTextures,kEffects,
         kShadowQuality,kRasterAo,kRasterReflections,kRayQuality,kTextureDetail,
         kBloom,kLensGhosts,kDepthOfField,kMotionBlur,kFilmGrain,kClarity,kLensDistortion,kLetterbox,
-        kMods,
+        kMods, kGpuDriver, kGpuDriverRemove,
         kLoopBrowser, kExtras, kFreecam, kPhotoMode, kStreetWalk, kStreetRestart, kStreetLeave, kLoopLock, kThirdPerson, kSpeedrun, kLiveSplit, kRunMenu, kRunReal, kRunGame, kRunBest,
         kArchive, kArchiveLock,
         kVr, kVrMode, kVrFlashlight, kVrTurn,
@@ -2646,8 +2650,25 @@ private:
         textures[0].column = 1;
         effects[0].column = 1;
         effects[1].column = 1;
-        return {std::move(quality), std::move(lighting[0]),
-                std::move(textures[0]), std::move(effects[0]), std::move(effects[1])};
+        std::vector<pt::game::PcSettingSection> out;
+        out.push_back(std::move(quality));
+        out.push_back(std::move(lighting[0]));
+#ifdef __ANDROID__
+        // a custom Vulkan driver (docs/android.md): picked here, loaded when the game starts
+        pt::game::PcSettingSection driver{"pc_section_gpu_driver",0,{}};
+        const std::string driver_name = pt::android::GpuDriverName();
+        auto pick=Row(kGpuDriver,"pc_gpu_driver",{driver_name.empty()?"pc_gpu_driver_system":driver_name},0,"pc_note_gpu_driver");
+        pick.action=true;driver.rows.push_back(std::move(pick));
+        if(!driver_name.empty()){
+            auto remove=Row(kGpuDriverRemove,"pc_gpu_driver_remove",{"pc_gpu_driver_remove_value"},0,"pc_note_gpu_driver_remove");
+            remove.action=true;driver.rows.push_back(std::move(remove));
+        }
+        out.push_back(std::move(driver));
+#endif
+        out.push_back(std::move(textures[0]));
+        out.push_back(std::move(effects[0]));
+        out.push_back(std::move(effects[1]));
+        return out;
     }
 
     std::vector<pt::game::PcSettingSection> LightingSections() const {

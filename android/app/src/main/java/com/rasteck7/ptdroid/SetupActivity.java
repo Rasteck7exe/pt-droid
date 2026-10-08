@@ -40,8 +40,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.json.JSONObject;
-
 import com.rasteck7.ptdroid.pkg.PkgExtractor;
 
 /**
@@ -257,33 +255,8 @@ public class SetupActivity extends Activity {
 
     // ---- custom GPU driver ------------------------------------------------------------------------------------------
 
-    // Adrenotools only loads drivers from the app's private storage; the game reads them from here when it starts
-    // (src/engine/platform/android_support.cpp): the package's .so files and meta.json, and main.txt with the main library.
-    private File driverDir() {
-        return new File(getFilesDir(), "gpu_driver");
-    }
-
-    private String driverName() {
-        File dir = driverDir();
-        File main = new File(dir, "main.txt");
-        if (!main.isFile()) {
-            return null;
-        }
-        try {
-            String library = new String(java.nio.file.Files.readAllBytes(main.toPath())).trim();
-            return new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(dir, "meta.json").toPath())))
-                    .optString("name", library);
-        } catch (Exception e) {
-            try {
-                return new String(java.nio.file.Files.readAllBytes(main.toPath())).trim();
-            } catch (IOException io) {
-                return null;
-            }
-        }
-    }
-
     private void addDriverSection(LinearLayout column) {
-        String name = driverName();
+        String name = GpuDriver.name(this);
         column.addView(text("Driver de GPU", 17, true));
         column.addView(text(name == null
                 ? "Usando el del teléfono. Puedes instalar uno propio, por ejemplo un Turnip (Mesa) para Adreno, desde un .zip "
@@ -298,58 +271,17 @@ public class SetupActivity extends Activity {
         }));
         if (name != null) {
             column.addView(button("Volver al driver del teléfono", v -> {
-                deleteRecursively(driverDir());
+                GpuDriver.deleteRecursively(GpuDriver.dir(this));
                 buildUi();
             }));
         }
-    }
-
-    private static void deleteRecursively(File file) {
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                deleteRecursively(child);
-            }
-        }
-        file.delete();
     }
 
     /** Unpacks the picked driver package into the private folder, replacing the one installed, on a worker thread. */
     private void installDriver(Uri uri) {
         copying = true;
         new Thread(() -> {
-            File staging = new File(getFilesDir(), "gpu_driver.new");
-            String error = null;
-            try {
-                deleteRecursively(staging);
-                staging.mkdirs();
-                String[] libraries;
-                try (InputStream in = getContentResolver().openInputStream(uri)) {
-                    libraries = DriverZip.extract(in, staging);
-                }
-                if (libraries.length == 0) {
-                    error = "Eso no es un driver: el .zip no trae ningún .so.";
-                } else {
-                    String libraryName = "";
-                    try {
-                        libraryName = new JSONObject(new String(java.nio.file.Files.readAllBytes(
-                                new File(staging, "meta.json").toPath()))).optString("libraryName", "");
-                    } catch (Exception ignored) {
-                        // no meta.json, or not readable: the library is picked by its name
-                    }
-                    try (FileOutputStream out = new FileOutputStream(new File(staging, "main.txt"))) {
-                        out.write((DriverZip.mainLibrary(libraries, libraryName) + "\n").getBytes());
-                    }
-                    deleteRecursively(driverDir());
-                    if (!staging.renameTo(driverDir())) {
-                        error = "No pude instalar el driver en el almacenamiento de la app.";
-                    }
-                }
-            } catch (Exception e) {
-                error = "No pude leer ese archivo: " + e.getMessage();
-            }
-            deleteRecursively(staging);
-            final String message = error;
+            String message = GpuDriver.install(this, uri);
             runOnUiThread(() -> {
                 copying = false;
                 buildUi();

@@ -26,8 +26,13 @@ void main() {
             ivec2 p = base + ivec2(x, y);
             if (all(lessThan(p, size))) {
                 float depth = ImgFetch(IMG_DEPTH, p).x;
-                if (depth > 0.0) {
-                    acc += vec2(max(0.0, Luma709(ImgFetch(IMG_DIFFUSE, p).rgb)), 1.0);
+                // reverse Z: 0 is the cleared far plane; anything outside (0, 1] is not a surface
+                if (IsFinite(depth) && depth > 0.0 && depth <= 1.0) {
+                    float luma = Luma709(ImgFetch(IMG_DIFFUSE, p).rgb);
+                    // one NaN pixel would turn the whole average, and with it the exposure, into NaN for good
+                    if (IsFinite(luma)) {
+                        acc += vec2(clamp(luma, 0.0, 65504.0), 1.0);
+                    }
                 }
             }
         }

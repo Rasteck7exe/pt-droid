@@ -1495,8 +1495,16 @@ void SceneRenderer::RecordLuminance(VkCommandBuffer cmd) {
     FrameSlot& slot = slots_[renderer_->FrameIndex()];
     const uint32_t gx = (extent_.width + 31) / 32;
     const uint32_t gy = (extent_.height + 31) / 32;
-    if (gx * gy > 16384) {
+    if (gx * gy > gpu::kLuminanceGroups || !luminance_ || !slot.luminance.mapped) {
         return;
+    }
+    // count -1 in every group the dispatch should write, so SumLuminance can tell a group the GPU never wrote (the buffer
+    // still holds whatever the memory had: on Adreno that is not zeros) from a measured one; the reflection readback after
+    // the groups is left alone. The slot's previous frame finished before Render reached here.
+    {
+        glm::vec2* partial = static_cast<glm::vec2*>(slot.luminance.mapped);
+        std::fill(partial, partial + gx * gy, glm::vec2(0.0f, -1.0f));
+        vmaFlushAllocation(renderer_->Context().allocator, slot.luminance.allocation, 0, sizeof(glm::vec2) * gx * gy);
     }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, luminance_);
     BindSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -2202,33 +2210,37 @@ void SceneRenderer::SettleExposure(const ExposureSettings& settings) {
         RecordLuminance(cmd);
         EndLabel(cmd);
     });
-    vmaInvalidateAllocation(renderer_->Context().allocator, slot.luminance.allocation, 0, VK_WHOLE_SIZE);
-    const glm::vec2* partial = static_cast<const glm::vec2*>(slot.luminance.mapped);
-    double sum = 0.0;
-    double count = 0.0;
-    for (uint32_t i = 0; i < slot.luminance_groups; ++i) {
-        sum += partial[i].x;
-        count += partial[i].y;
-    }
+    const LuminanceSum l = SumLuminance(slot);
     adaptation_valid_ = true;
-    if (count <= 0.0) {
+    if (l.unwritten > 0 || l.invalid > 0) {
+        ReportLuminance("settle", l);
+    }
+    SanitizeExposure(settings);
+    if (!(l.count > 0.0) || !std::isfinite(l.sum)) {
+        LogInfo("scene renderer: exposure not settled, nothing measured ({} groups), ev stays {:.2f}", l.groups, ev_);
         return;
     }
-    const float raw = static_cast<float>(sum / count) / std::max(exposure_, 1.0e-12f);
+    const float raw = static_cast<float>(l.sum / l.count) / (std::isfinite(exposure_) ? std::max(exposure_, 1.0e-12f) : 1.0f);
     float ev = ev_;
     for (int i = 0; i < 64; ++i) {
         const float adapted = raw * std::exp2(ev);
-        ev = std::clamp(ev + 0.5f * (std::log2(settings.key + 0.001f) - std::log2(adapted + 0.001f)), settings.min_ev, settings.max_ev);
+        const float next = std::clamp(ev + 0.5f * (std::log2(settings.key + 0.001f) - std::log2(adapted + 0.001f)), settings.min_ev, settings.max_ev);
+        if (!std::isfinite(next)) {
+            break;
+        }
+        ev = next;
     }
     ev_ = ev;
-    exposure_ = ExposureFor(ev_, settings) * renderer_->exposure;
+    SanitizeExposure(settings);
+    exposure_ = SafeExposure(ExposureFor(ev_, settings) * renderer_->exposure);
     for (uint32_t i = 0; i < view_count_; ++i) {
         frame_->views[i].exposure = glm::vec4(exposure_, 1.0f / std::max(exposure_, 1.0e-12f), ev_, frame_->views[i].exposure.w);
     }
     SetTppFog(lighting_->tpp);
     UploadFrame(slot);
-    LogInfo("scene renderer: exposure settled at ev {:.2f} (luminance {:.4f}, exposure {:.5f}), {} lights, {} probes, {} shadow views, {} draws", ev_,
-            raw, exposure_, light_count_, probe_count_, shadow_views_.size(), draws_.size());
+    LogInfo("scene renderer: exposure settled at ev {:.2f} (luminance {:.4f} over {:.0f} pixels, exposure {:.5f}, key {}, ev range {} to {}), {} lights, "
+            "{} probes, {} shadow views, {} draws",
+            ev_, raw, l.count, exposure_, settings.key, settings.min_ev, settings.max_ev, light_count_, probe_count_, shadow_views_.size(), draws_.size());
 }
 
 void SceneRenderer::Render(const Camera& camera, const std::vector<DrawItem>& items) {
@@ -2301,9 +2313,12 @@ void SceneRenderer::Render(const Camera& camera, const std::vector<DrawItem>& it
     }
     ReadUpscaleTimestamps(slot);
     if (lighting_->valid && toggles.adaptation) {
-        exposure_ = ExposureFor(ev_, lighting_->exposure) * renderer_->exposure;
+        if (!std::isfinite(ev_)) {
+            SanitizeExposure(lighting_->exposure);
+        }
+        exposure_ =SafeExposure(ExposureFor(ev_, lighting_->exposure) * renderer_->exposure);
     } else {
-        exposure_ = renderer_->exposure;
+        exposure_ = SafeExposure(renderer_->exposure);
     }
     UpdateMotion(camera, dt);
     rt_active_ = rt_ && raytracing.shadows && toggles.shadows;

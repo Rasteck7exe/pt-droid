@@ -216,6 +216,16 @@ float Luma709(vec3 c) {
     return dot(c, vec3(0.21252441, 0.71533203, 0.07208252));
 }
 
+/* NaN and infinity tested on the bits: a driver compiling with fast math may fold isnan()/isinf() to false, and some
+   (Adreno) return NaN from max(0.0, NaN) where desktop GPUs return 0.0. */
+bool IsFinite(float x) {
+    return (floatBitsToUint(x) & 0x7F800000u) != 0x7F800000u;
+}
+
+bool IsFinite3(vec3 c) {
+    return IsFinite(c.x) && IsFinite(c.y) && IsFinite(c.z);
+}
+
 float Luma601(vec3 c) {
     return dot(c, vec3(0.299, 0.587, 0.114));
 }

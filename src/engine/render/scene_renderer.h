@@ -288,6 +288,17 @@ private:
     void UploadFrame(FrameSlot& slot);
     void SetTppFog(const TppAtmosphereSettings& tpp);
     void ReadMeasurements(FrameSlot& slot, float dt, const ExposureSettings& settings);
+    struct LuminanceSum {
+        double sum = 0.0;
+        double count = 0.0;
+        uint32_t groups = 0;
+        uint32_t unwritten = 0;
+        uint32_t invalid = 0;
+    };
+    LuminanceSum SumLuminance(FrameSlot& slot);
+    void ReportLuminance(const char* where, const LuminanceSum& l);
+    void SanitizeExposure(const ExposureSettings& settings);
+    float SafeExposure(float exposure) const;
     void SettleExposure(const ExposureSettings& settings);
     float ExposureFor(float ev, const ExposureSettings& settings) const;
 
@@ -563,6 +574,9 @@ private:
     bool adaptation_valid_ = false;
     bool ev_pinned_ = false;
     float exposure_ = 1.0f;
+    uint32_t luminance_reports_ = 0;
+    uint32_t exposure_resets_ = 0;
+    uint32_t measurements_ = 0;
     Camera motion_reference_;
     float motion_interval_ = 1.0f / 60.0f;
     bool motion_reference_set_ = false;

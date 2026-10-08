@@ -90,6 +90,10 @@ void main() {
         TppFog(v.eye.xyz, world_point, inscatter, transmittance);
         color = color * transmittance + inscatter;
     }
+    // a NaN here would spread through bloom and the temporal history to the whole screen
+    if (!IsFinite3(color)) {
+        color = vec3(0.0);
+    }
     float bloom_alpha = BloomAlpha(color);
     if ((tpp & 2u) != 0u) {
         color = TppShoulder(color);

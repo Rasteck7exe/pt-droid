@@ -1192,25 +1192,23 @@ void SceneRenderer::ReadMeasurements(FrameSlot& slot, float dt, const ExposureSe
     if (!slot.measured || slot.luminance_groups == 0) {
         return;
     }
-    vmaInvalidateAllocation(renderer_->Context().allocator, slot.luminance.allocation, 0, VK_WHOLE_SIZE);
-    const glm::vec2* partial = static_cast<const glm::vec2*>(slot.luminance.mapped);
-    double sum = 0.0;
-    double count = 0.0;
-    for (uint32_t i = 0; i < slot.luminance_groups; ++i) {
-        sum += partial[i].x;
-        count += partial[i].y;
-    }
+    const LuminanceSum l = SumLuminance(slot);
     slot.measured = false;
-    if (count <= 0.0) {
+    ++measurements_;
+    if (l.unwritten > 0 || l.invalid > 0) {
+        ReportLuminance("frame", l);
+    }
+    if (!(l.count > 0.0) || !std::isfinite(l.sum)) {
         return;
     }
-    const float measured = static_cast<float>(sum / count);
+    const float measured = static_cast<float>(l.sum / l.count);
     stats_.luminance = measured;
     if (!adaptation_valid_ || !toggles.adaptation || !lighting_ || !lighting_->valid) {
         return;
     }
-    ev_ = std::clamp(ev_, settings.min_ev, settings.max_ev);
-    const float raw = measured / std::max(slot.exposure_used, 1.0e-12f);
+    SanitizeExposure(settings);
+    const float used = std::isfinite(slot.exposure_used) ? std::max(slot.exposure_used, 1.0e-12f) : 1.0f;
+    const float raw = measured / used;
     const float adapted = raw * std::exp2(ev_);
     const float target = std::clamp(ev_ + 0.5f * (std::log2(settings.key + 0.001f) - std::log2(adapted + 0.001f)), settings.min_ev, settings.max_ev);
     const float diff = target - ev_;
@@ -1218,7 +1216,68 @@ void SceneRenderer::ReadMeasurements(FrameSlot& slot, float dt, const ExposureSe
     if (std::abs(step) > std::abs(diff)) {
         step = diff;
     }
-    ev_ += step;
+    if (std::isfinite(step)) {
+        ev_ += step;
+    }
+#if defined(__ANDROID__)
+    // a line every ~10 s at 60 fps, to tell from a phone's log whether the exposure behaves
+    if (measurements_ % 600 == 1) {
+        LogInfo("scene renderer: ev {:.2f}, exposure {:.5f}, luminance {:.4f} ({:.0f} pixels in {} groups)", ev_, exposure_, measured, l.count,
+                l.groups);
+    }
+#endif
+}
+
+SceneRenderer::LuminanceSum SceneRenderer::SumLuminance(FrameSlot& slot) {
+    LuminanceSum l;
+    l.groups = slot.luminance_groups;
+    vmaInvalidateAllocation(renderer_->Context().allocator, slot.luminance.allocation, 0, VK_WHOLE_SIZE);
+    const glm::vec2* partial = static_cast<const glm::vec2*>(slot.luminance.mapped);
+    // a group covers 32x32 pixels; RecordLuminance leaves count -1 in each before the dispatch
+    constexpr float kGroupPixels = 32.0f * 32.0f;
+    for (uint32_t i = 0; i < slot.luminance_groups; ++i) {
+        const glm::vec2 p = partial[i];
+        if (p.y < 0.0f) {
+            ++l.unwritten;
+            continue;
+        }
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || p.x < 0.0f || p.y > kGroupPixels) {
+            ++l.invalid;
+            continue;
+        }
+        l.sum += p.x;
+        l.count += p.y;
+    }
+    return l;
+}
+
+void SceneRenderer::ReportLuminance(const char* where, const LuminanceSum& l) {
+    if (luminance_reports_ >= 12) {
+        return;
+    }
+    ++luminance_reports_;
+    LogWarn("scene renderer: luminance ({}) has {} unwritten and {} invalid of {} groups (sum {}, {} pixels){}", where, l.unwritten, l.invalid, l.groups,
+            l.sum, l.count, luminance_reports_ == 12 ? ", not reported again" : "");
+}
+
+void SceneRenderer::SanitizeExposure(const ExposureSettings& settings) {
+    const float lo = std::isfinite(settings.min_ev) ? settings.min_ev : -10.0f;
+    const float hi = std::isfinite(settings.max_ev) ? std::max(settings.max_ev, lo) : std::max(1.0f, lo);
+    if (!std::isfinite(ev_)) {
+        if (exposure_resets_++ < 8) {
+            LogWarn("scene renderer: ev was {}, reset to 0 (min {}, max {}, key {})", ev_, settings.min_ev, settings.max_ev, settings.key);
+        }
+        ev_ = 0.0f;
+    }
+    ev_ = std::clamp(ev_, lo, hi);
+}
+
+float SceneRenderer::SafeExposure(float exposure) const {
+    if (std::isfinite(exposure) && exposure > 0.0f) {
+        return exposure;
+    }
+    const float fallback = renderer_->exposure;
+    return std::isfinite(fallback) && fallback > 0.0f ? fallback : 1.0f;
 }
 
 namespace {

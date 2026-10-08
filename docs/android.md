@@ -8,7 +8,7 @@ los archivos de tu propia copia.
 
 - Teléfono Android 11 o más nuevo, ARM64, con **Vulkan 1.3** (por ejemplo Snapdragon 8 Gen 2/3/Elite).
 - Tus tres archivos de P.T. (versión US, `CUSA01127`): `chunk1.psarc`, `texture.qar` y `pathid_list_ps4.bin`.
-- Un control (Bluetooth o USB). Por ahora no hay controles táctiles.
+- Un control (Bluetooth o USB) o los controles táctiles en pantalla.
 
 ## Conseguir el APK
 
@@ -22,22 +22,42 @@ APK nuevo se instala encima del anterior sin perder tu partida.
 
 ## Los archivos del juego
 
-Los tres archivos salen de tu dump de consola o de tu fake PKG. La forma más fácil desde la PC es el instalador de Linux o
-Windows del proyecto original, que los extrae del PKG y los deja junto al port de PC. Luego cópialos al teléfono en:
+Los tres archivos salen de tu dump de consola o de tu fake PKG; el instalador de Linux o Windows del proyecto original los
+extrae del PKG y los deja junto al port de PC. Pásalos al teléfono a cualquier carpeta (por ejemplo `PT/CUSA01127`).
 
-    /storage/emulated/0/PT/CUSA01127/
+La primera vez que abres la app aparece la pantalla de configuración (`SetupActivity.java`):
 
-Por USB con adb, desde la carpeta donde están los tres archivos:
+- **Elegir la carpeta con los archivos**: abre el selector de carpetas de Android; busca los tres archivos en la carpeta
+  elegida y hasta tres niveles de subcarpetas.
+- **Elegir los 3 archivos**: el selector de archivos, con selección múltiple.
 
-    adb shell mkdir -p /storage/emulated/0/PT/CUSA01127
-    adb push chunk1.psarc texture.qar pathid_list_ps4.bin /storage/emulated/0/PT/CUSA01127/
+Los archivos se copian, con barra de progreso, a la carpeta de la app
+(`/storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/CUSA01127/`), que no necesita permisos especiales; luego
+arranca el juego, y las siguientes veces entra directo. Después puedes borrar los originales. Si borras los datos de la app,
+la pantalla vuelve a aparecer.
 
-Para leer esa carpeta la app pide el permiso **Acceso a todos los archivos**: si no lo tiene, al abrirla aparece un aviso
-con el botón *Dar permiso*, que abre la pantalla de ajustes; actívalo, regresa y toca *Reintentar*.
+También funcionan, sin pasar por la pantalla:
 
-Si prefieres no dar ese permiso, la otra carpeta que funciona sin permisos es la de la propia app:
+- copiar los archivos directo a esa carpeta de la app por USB o adb:
 
-    /storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/CUSA01127/
+      adb shell mkdir -p /storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/CUSA01127
+      adb push chunk1.psarc texture.qar pathid_list_ps4.bin /storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/CUSA01127/
+
+- dejarlos en `/storage/emulated/0/PT/CUSA01127/` y dar a la app **Acceso a todos los archivos** (Ajustes → Apps → Acceso
+  especial → Acceso a todos los archivos; la pantalla de configuración tiene un botón que abre esa opción).
+
+## Controles táctiles
+
+Mientras no hay un mando conectado, el juego dibuja controles encima de la imagen
+(`src/engine/platform/touch_controls.cpp`), que funcionan como un mando de PS4 más:
+
+- **Mitad izquierda**: stick de movimiento flotante (aparece donde pones el dedo; si lo arrastras más allá del borde, la
+  base lo sigue). Arriba de él, el **D-pad** para los menús.
+- **Mitad derecha**: stick para mirar, también flotante.
+- **✕ ○ □ △**, **ZOOM** (R3), **L3**, **L1**, **R1**, **PAD** (botón del touchpad), **OPTIONS** (pausa) y **PC** (ajustes
+  de PC).
+
+Al conectar un mando se ocultan; al desconectarlo vuelven. Los avisos de botones del juego usan los símbolos de PlayStation.
 
 ## Qué cambia respecto a PC
 
@@ -72,7 +92,7 @@ El APK queda en `android/app/build/outputs/apk/release/app-release.apk`.
 
 ## Pendiente
 
-- Controles táctiles (stick virtual y botón de interacción).
+- Opciones de los controles táctiles (tamaño, opacidad, mirar arrastrando el dedo).
 - Recrear la superficie de Vulkan al volver de segundo plano: por ahora, minimizar la app puede cerrarla.
 - Escala de resolución interna para teléfonos con pantalla QHD+.
 - Transcodificar BC a ASTC/ETC2 en vez de RGBA para ahorrar memoria.

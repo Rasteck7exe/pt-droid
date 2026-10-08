@@ -9,6 +9,8 @@
 #include <string_view>
 #include <vector>
 
+#include "engine/platform/touch_controls.h"
+
 union SDL_Event;
 struct SDL_Gamepad;
 
@@ -147,6 +149,8 @@ public:
     const PromptStyle& Prompts() const { return prompts_; }
     void InjectKey(uint32_t scancode, bool down);
     void InjectMouseButton(uint8_t button, bool down);
+    // the on-screen controls of touch screens (Android, docs/android.md), active while no gamepad is connected
+    TouchControls& Touch() { return touch_; }
 
     InputSettings settings;
 
@@ -168,8 +172,10 @@ private:
     uint32_t TouchRaw(const Pad& pad) const;
     glm::vec2 Stick(const Pad& pad, int x_axis, int y_axis) const;
     void UpdateRumble();
+    void UpdateTouchControls();
 
     std::vector<Pad> pads_;
+    TouchControls touch_;
     uint64_t use_counter_ = 0;
     float mouse_dx_ = 0.0f;
     float mouse_dy_ = 0.0f;

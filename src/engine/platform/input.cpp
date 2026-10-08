@@ -332,6 +332,18 @@ void InputDevice::Init() {
     } else {
         UsePrompts(pads_.front().style, pads_.front().id);
     }
+    UpdateTouchControls();
+}
+
+void InputDevice::UpdateTouchControls() {
+#ifdef __ANDROID__
+    // the on-screen controls stand in for a gamepad until a real one is connected
+    const bool enable = pads_.empty();
+    if (enable != touch_.Enabled()) {
+        LogInfo("input: on-screen controls {}", enable ? "shown (no gamepad)" : "hidden (gamepad connected)");
+    }
+    touch_.SetEnabled(enable);
+#endif
 }
 
 void InputDevice::UsePrompts(const PromptStyle& style, uint32_t pad) {
@@ -442,15 +454,18 @@ glm::vec2 InputDevice::Stick(const Pad& pad, int x_axis, int y_axis) const {
 }
 
 void InputDevice::ProcessEvent(const SDL_Event& event) {
+    touch_.ProcessEvent(event);
     switch (event.type) {
     case SDL_EVENT_GAMEPAD_ADDED:
         Open(event.gdevice.which);
         if (const Pad* pad = Find(event.gdevice.which)) {
             UsePrompts(pad->style, pad->id);
         }
+        UpdateTouchControls();
         break;
     case SDL_EVENT_GAMEPAD_REMOVED:
         Close(event.gdevice.which);
+        UpdateTouchControls();
         break;
     case SDL_EVENT_MOUSE_MOTION:
         mouse_dx_ += event.motion.xrel;
@@ -641,6 +656,26 @@ InputState InputDevice::Poll(bool keyboard_free, MouseUse mouse, bool pads_free)
         if (glm::length(r) > glm::length(right)) {
             right = r;
         }
+    }
+    {
+        // the on-screen controls count as one more PS4 pad (src/engine/platform/touch_controls.h)
+        constexpr uint32_t kTouchPadId = 0xFFFFFFF0u;
+        const TouchControls::State touch = touch_.Take();
+        if (touch_.Enabled() && pads_free) {
+            pad_raw |= touch.raw;
+            if (glm::length(touch.left) > glm::length(left)) {
+                left = touch.left;
+            }
+            if (glm::length(touch.right) > glm::length(right)) {
+                right = touch.right;
+            }
+            if (touch.active || touch.pressed) {
+                last_from_gamepad_ = true;
+                UsePrompts(PromptStyle{PromptDevice::PlayStation, {}}, kTouchPadId);
+            }
+            any_edge_ |= touch.pressed;
+        }
+        settings_edge_ |= touch.settings;
     }
     if (glm::length(left) > glm::length(move)) {
         state.left_stick = left;

@@ -721,15 +721,11 @@ std::filesystem::path FindGameDir(const Options& options) {
             return candidate;
         }
     }
+    // The setup screen (android/.../SetupActivity.java) imports the files before the game starts, so this is only a
+    // fallback; the text stays short because SDL's dialog does not scroll and a long one hides its buttons.
     for (;;) {
         const bool access = pt::android::HasAllFilesAccess();
-        std::string text = "No encontr\xC3\xA9 los archivos de P.T.\n\nCopia chunk1.psarc, texture.qar y pathid_list_ps4.bin "
-                           "de tu CUSA01127 a esta carpeta del tel\xC3\xA9" "fono:\n\n" +
-                           pt::android::SharedGameDir().string() + "\n\n";
-        if (!access) {
-            text += "Para leer esa carpeta, la app necesita el permiso \"Acceso a todos los archivos\" (bot\xC3\xB3n Dar permiso).\n\n";
-        }
-        text += "Sin permiso tambi\xC3\xA9n sirve esta carpeta (por USB o adb):\n\n" + pt::android::AppGameDir().string();
+        const std::string text = "No encontr\xC3\xA9 los archivos de P.T.\nCierra la app y \xC3\xA1" "brela de nuevo para elegir la carpeta.";
         std::vector<SDL_MessageBoxButtonData> buttons;
         buttons.push_back({SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Reintentar"});
         if (!access) {
@@ -3951,6 +3947,13 @@ int RunGame(App& app, pt::Vfs& vfs) {
             if (show_settings) {
                 DrawSettingsWindow(app, input, sound, game);
             }
+#ifdef __ANDROID__
+            // the on-screen controls (src/engine/platform/touch_controls.h), over everything while no gamepad is connected
+            if (!show_settings) {
+                input.Touch().SetViewSize(io.DisplaySize.x, io.DisplaySize.y);
+                input.Touch().Draw(ImGui::GetForegroundDrawList());
+            }
+#endif
             ImGui::Render();
         }
         if (photo_mode) {
@@ -4366,6 +4369,8 @@ int main(int argc, char** argv) {
     // first start (pt::ExecutableDir() is that copy)
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+    // touches drive the on-screen controls only; as mouse clicks they would also act in the game
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
     if (!pt::android::PrepareResources()) {
         pt::LogError("android: the resources in the APK could not be copied out");
     }

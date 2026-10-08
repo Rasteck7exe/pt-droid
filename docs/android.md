@@ -81,6 +81,20 @@ Al conectar un mando se ocultan; al desconectarlo vuelven. Los avisos de botones
   almacenamiento interno la primera vez que abres cada versión nueva (`src/engine/platform/android_support.cpp`); esa
   primera apertura tarda unos segundos más.
 
+## Driver de GPU propio
+
+En GPU Adreno puedes usar un driver Vulkan distinto al del teléfono, por ejemplo un build de Turnip (Mesa), como hacen
+Winlator y los emuladores. Mantén pulsado el icono de la app y elige **GPU driver** (o míralo en la pantalla que sale tras
+un crash): **Instalar un driver (.zip)** abre el selector de Android; el .zip es el formato de siempre (`meta.json` y el
+`.so`, a veces con más `.so`). Se extrae en el almacenamiento privado de la app (`files/gpu_driver/`) y el juego lo carga al
+arrancar con libadrenotools (`cmake/Adrenotools.cmake`, `src/engine/platform/android_support.cpp`). **Volver al driver del
+teléfono** lo borra.
+
+- Si el driver no crea la instancia de Vulkan, el juego usa el del teléfono en esa misma sesión; si el juego se cierra
+  antes de que arranque el renderizador, la siguiente vez descarta el driver solo (`.trial` en esa carpeta).
+- El log dice cuál se usa: `android: custom GPU driver ...` y `vulkan: using ...`.
+- Solo Adreno, Android 11 o más nuevo; el juego necesita Vulkan 1.3, así que usa un build reciente.
+
 ## Logs y crashes
 
 - `pt.log` queda en `/storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/pt.log` (accesible por USB).

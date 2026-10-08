@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="gpu_driver"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_gpu_driver">
+        <intent
+            android:action="android.intent.action.MAIN"
+            android:targetPackage="com.rasteck7.ptdroid"
+            android:targetClass="com.rasteck7.ptdroid.SetupActivity">
+            <extra android:name="gpu_driver" android:value="true" />
+        </intent>
+    </shortcut>
+</shortcuts>

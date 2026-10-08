@@ -5,6 +5,7 @@
 #ifdef __ANDROID__
 
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace pt::android {
@@ -34,6 +35,17 @@ void InstallCrashHandler();
 // The "all files access" permission (MANAGE_EXTERNAL_STORAGE), through the activity (android/.../PTActivity.java).
 bool HasAllFilesAccess();
 void RequestAllFilesAccess();
+
+
+// A custom Vulkan driver the person installed on the setup screen (android/.../SetupActivity.java) instead of the phone's
+// own, opened through libadrenotools. Returns the driver's vkGetInstanceProcAddr, or null (the reason in `error`, empty when
+// none is installed) to use the system driver. The driver is on trial from here until EndGpuDriverTrial(): if the app dies
+// in between, the next start drops the driver so it cannot trap the person in a crash loop.
+void* OpenCustomGpuDriver(std::string& error);
+bool CustomGpuDriverActive();
+// Closes the driver (the one that would not create an instance) so the system driver can be loaded instead.
+void CloseCustomGpuDriver();
+void EndGpuDriverTrial();
 
 }
 

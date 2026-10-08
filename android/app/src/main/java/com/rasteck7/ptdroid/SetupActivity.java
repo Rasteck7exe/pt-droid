@@ -40,6 +40,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.json.JSONObject;
+
 import com.rasteck7.ptdroid.pkg.PkgExtractor;
 
 /**
@@ -57,6 +59,7 @@ public class SetupActivity extends Activity {
     private static final int PICK_FOLDER = 1;
     private static final int PICK_FILES = 2;
     private static final int PICK_PKG = 3;
+    private static final int PICK_DRIVER = 4;
 
     private File targetDir;
     private TextView status;
@@ -64,6 +67,8 @@ public class SetupActivity extends Activity {
     private LinearLayout buttons;
     private volatile boolean copying = false;
     private ApplicationExitInfo lastExit;
+    // opened from the "GPU driver" shortcut: stay on this screen instead of starting the game
+    private boolean driverScreen;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +76,8 @@ public class SetupActivity extends Activity {
         targetDir = new File(getExternalFilesDir(null), "CUSA01127");
         // the last run crashed, ran out of memory or hung: say so and offer the log before starting again
         lastExit = CrashReport.lastBadExit(this);
-        if (haveGame() && lastExit == null) {
+        driverScreen = getIntent().hasExtra("gpu_driver");
+        if (haveGame() && lastExit == null && !driverScreen) {
             startGame();
             return;
         }
@@ -82,7 +88,7 @@ public class SetupActivity extends Activity {
     protected void onResume() {
         super.onResume();
         // back from the all files access screen, or the files were copied over USB meanwhile
-        if (status != null && !copying && lastExit == null && haveGame()) {
+        if (status != null && !copying && lastExit == null && !driverScreen && haveGame()) {
             startGame();
         }
     }
@@ -200,6 +206,10 @@ public class SetupActivity extends Activity {
                 }));
             }
         }
+        if (installed && lastExit == null) {
+            column.addView(button("Jugar", v -> startGame()));
+        }
+        addDriverSection(column);
         if (installed) {
             status = text("", 14, false);
             column.addView(status);
@@ -243,6 +253,111 @@ public class SetupActivity extends Activity {
         column.addView(text("Carpeta de la app: " + targetDir.getAbsolutePath(), 12, false));
 
         setContentView(scroll);
+    }
+
+    // ---- custom GPU driver ------------------------------------------------------------------------------------------
+
+    // Adrenotools only loads drivers from the app's private storage; the game reads them from here when it starts
+    // (src/engine/platform/android_support.cpp): the package's .so files and meta.json, and main.txt with the main library.
+    private File driverDir() {
+        return new File(getFilesDir(), "gpu_driver");
+    }
+
+    private String driverName() {
+        File dir = driverDir();
+        File main = new File(dir, "main.txt");
+        if (!main.isFile()) {
+            return null;
+        }
+        try {
+            String library = new String(java.nio.file.Files.readAllBytes(main.toPath())).trim();
+            return new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(dir, "meta.json").toPath())))
+                    .optString("name", library);
+        } catch (Exception e) {
+            try {
+                return new String(java.nio.file.Files.readAllBytes(main.toPath())).trim();
+            } catch (IOException io) {
+                return null;
+            }
+        }
+    }
+
+    private void addDriverSection(LinearLayout column) {
+        String name = driverName();
+        column.addView(text("Driver de GPU", 17, true));
+        column.addView(text(name == null
+                ? "Usando el del teléfono. Puedes instalar uno propio, por ejemplo un Turnip (Mesa) para Adreno, desde un .zip "
+                        + "con su meta.json y su .so. Solo funciona en GPU Adreno. Si el juego no arranca con él, la siguiente "
+                        + "vez vuelve solo al del teléfono."
+                : "Instalado: " + name, 14, false));
+        column.addView(button(name == null ? "Instalar un driver (.zip)" : "Cambiar el driver (.zip)", v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            startActivityForResult(intent, PICK_DRIVER);
+        }));
+        if (name != null) {
+            column.addView(button("Volver al driver del teléfono", v -> {
+                deleteRecursively(driverDir());
+                buildUi();
+            }));
+        }
+    }
+
+    private static void deleteRecursively(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteRecursively(child);
+            }
+        }
+        file.delete();
+    }
+
+    /** Unpacks the picked driver package into the private folder, replacing the one installed, on a worker thread. */
+    private void installDriver(Uri uri) {
+        copying = true;
+        new Thread(() -> {
+            File staging = new File(getFilesDir(), "gpu_driver.new");
+            String error = null;
+            try {
+                deleteRecursively(staging);
+                staging.mkdirs();
+                String[] libraries;
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    libraries = DriverZip.extract(in, staging);
+                }
+                if (libraries.length == 0) {
+                    error = "Eso no es un driver: el .zip no trae ningún .so.";
+                } else {
+                    String libraryName = "";
+                    try {
+                        libraryName = new JSONObject(new String(java.nio.file.Files.readAllBytes(
+                                new File(staging, "meta.json").toPath()))).optString("libraryName", "");
+                    } catch (Exception ignored) {
+                        // no meta.json, or not readable: the library is picked by its name
+                    }
+                    try (FileOutputStream out = new FileOutputStream(new File(staging, "main.txt"))) {
+                        out.write((DriverZip.mainLibrary(libraries, libraryName) + "\n").getBytes());
+                    }
+                    deleteRecursively(driverDir());
+                    if (!staging.renameTo(driverDir())) {
+                        error = "No pude instalar el driver en el almacenamiento de la app.";
+                    }
+                }
+            } catch (Exception e) {
+                error = "No pude leer ese archivo: " + e.getMessage();
+            }
+            deleteRecursively(staging);
+            final String message = error;
+            runOnUiThread(() -> {
+                copying = false;
+                buildUi();
+                if (message != null && status != null) {
+                    status.setText(message);
+                }
+            });
+        }).start();
     }
 
     private void pickFolder() {
@@ -359,6 +474,10 @@ public class SetupActivity extends Activity {
         }
         if (requestCode == PICK_PKG && data.getData() != null) {
             importPkg(data.getData());
+            return;
+        }
+        if (requestCode == PICK_DRIVER && data.getData() != null) {
+            installDriver(data.getData());
             return;
         }
         Map<String, Source> found = new HashMap<>();

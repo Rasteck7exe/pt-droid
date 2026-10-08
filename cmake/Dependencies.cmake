@@ -169,6 +169,12 @@ FetchContent_Populate(bcdec)
 
 file(GLOB LUA51_SOURCES ${lua51_SOURCE_DIR}/src/*.c)
 list(FILTER LUA51_SOURCES EXCLUDE REGEX ".*/(lua|luac|print)\\.c$")
+if(ANDROID)
+  # Lua 5.1 keeps a string's characters right after its TString header (svalue), which bionic's FORTIFY checks take for a
+  # read past the end of the object: the garbage collector's strchr on a weak table's __mode aborted the game in
+  # luaL_openlibs ("FORTIFY: strchr: prevented read past end of buffer"). The NDK turns FORTIFY on; Lua is built without it.
+  set_source_files_properties(${LUA51_SOURCES} PROPERTIES COMPILE_OPTIONS "-U_FORTIFY_SOURCE;-D_FORTIFY_SOURCE=0")
+endif()
 
 add_library(pt_thirdparty STATIC
   ${volk_SOURCE_DIR}/volk.c

@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks><StartupObject>Gen</StartupObject>
+    <EnableDefaultItems>false</EnableDefaultItems><DefineConstants>CORE</DefineConstants>
+    <NoWarn>CS0618;CS8632;SYSLIB0021;SYSLIB0022;SYSLIB0023;SYSLIB0045;CS0168;CS0219;CS0162;CS0649;CS0414;CS0169</NoWarn>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/GP4/Gp4Creator.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/GP4/Gp4Project.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/GP4/Gp4Validator.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/FlatPathTable.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/FSTree.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PFSBuilder.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PFSCReader.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PFSCWriter.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PfsProperties.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PfsReader.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/PfsStructs.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PFS/XtsDecryptReader.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/Entry.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/Enums.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/Pkg.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/PkgBuilder.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/PkgProperties.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/PkgReader.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/PkgValidator.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PKG/PkgWriter.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PlayGo/ChunkDat.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/PlayGo/Manifest.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Properties/AssemblyInfo.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Rif/LicenseDat.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Rif/LicenseInfo.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/SFO/ParamSfo.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/Crypto.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/Extensions.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/Keys.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/MemoryMapped.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/MersenneTwister.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/OffsetStream.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/ReaderBase.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/StreamExtensions.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/SubStream.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/WriterBase.cs" />
+    <Compile Include="$(LibOrbisSource)/LibOrbisPkg/Util/XtsBlockTransform.cs" />
+    <Compile Include="../../../installer/Extractor/Program.cs" />
+    <Compile Include="Gen.cs" />
+  </ItemGroup>
+</Project>

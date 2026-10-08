@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.os.StatFs;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
@@ -25,19 +26,27 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import com.rasteck7.ptdroid.pkg.PkgExtractor;
+
 /**
  * First screen of PT Droid (docs/android.md). If the game files are already in place it starts the game at once;
- * otherwise it lets the person pick the folder with the files (or the three files) through Android's own file picker
- * and copies them into the app's folder, which needs no special permission. Then it starts PTActivity.
+ * otherwise it lets the person pick P.T.'s package (a fake PKG, which it extracts as the PC installer does, with
+ * pkg/PkgExtractor), the folder with the files, or the three files, through Android's own file picker, and puts the
+ * files into the app's folder, which needs no special permission. Then it starts PTActivity. A store PKG cannot be
+ * opened; the screen then asks for the three files.
  */
 public class SetupActivity extends Activity {
 
@@ -46,6 +55,7 @@ public class SetupActivity extends Activity {
 
     private static final int PICK_FOLDER = 1;
     private static final int PICK_FILES = 2;
+    private static final int PICK_PKG = 3;
 
     private File targetDir;
     private TextView status;
@@ -137,15 +147,16 @@ public class SetupActivity extends Activity {
         scroll.addView(column);
 
         column.addView(text("PT Droid", 26, true));
-        column.addView(text("Para jugar necesitas tus archivos de P.T. (CUSA01127):\n"
-                + "chunk1.psarc, texture.qar y pathid_list_ps4.bin.\n\n"
-                + "Elige la carpeta donde están (o los tres archivos) y la app los copia a su propia carpeta. "
-                + "Es una sola vez y no necesita permisos especiales; después puedes borrar los originales.", 15, false));
+        column.addView(text("Para jugar necesitas tu copia de P.T. (CUSA01127).\n\n"
+                + "Elige el PKG del juego (fake PKG) y la app saca de él chunk1.psarc, texture.qar y "
+                + "pathid_list_ps4.bin, como el instalador de PC. Si ya los tienes extraídos, elige la carpeta o los "
+                + "tres archivos. Es una sola vez y no necesita permisos especiales; después puedes borrar los originales.", 15, false));
 
         buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.VERTICAL);
         column.addView(buttons);
-        buttons.addView(button("Elegir la carpeta con los archivos", v -> pickFolder()));
+        buttons.addView(button("Elegir el PKG del juego", v -> pickPkg()));
+        buttons.addView(button("Elegir la carpeta (con el PKG o los archivos)", v -> pickFolder()));
         buttons.addView(button("Elegir los 3 archivos", v -> pickFiles()));
         buttons.addView(button("Usar " + SHARED_DIR + " (acceso a todos los archivos)", v -> requestAllFilesAccess()));
         buttons.addView(button("Reintentar", v -> {
@@ -176,6 +187,13 @@ public class SetupActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(intent, PICK_FOLDER);
+    }
+
+    private void pickPkg() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(intent, PICK_PKG);
     }
 
     private void pickFiles() {
@@ -214,7 +232,11 @@ public class SetupActivity extends Activity {
     }
 
     /** Looks through a picked folder tree (and up to three levels of subfolders) for the game files. */
-    private void searchTree(Uri tree, String documentId, int depth, Map<String, Source> found) {
+    private static boolean isPkgName(String name) {
+        return name != null && name.toLowerCase(Locale.ROOT).endsWith(".pkg");
+    }
+
+    private void searchTree(Uri tree, String documentId, int depth, Map<String, Source> found, List<Source> packages) {
         ContentResolver resolver = getContentResolver();
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId);
         String[] columns = { DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -227,6 +249,11 @@ public class SetupActivity extends Activity {
                 String mime = cursor.getString(2);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
                     folders.add(id);
+                } else if (isPkgName(name)) {
+                    Source source = new Source();
+                    source.uri = DocumentsContract.buildDocumentUriUsingTree(tree, id);
+                    source.size = cursor.isNull(3) ? -1 : cursor.getLong(3);
+                    packages.add(source);
                 } else if (name != null && isGameFile(name)) {
                     String key = name.toLowerCase(Locale.ROOT);
                     if (!found.containsKey(key)) {
@@ -240,7 +267,7 @@ public class SetupActivity extends Activity {
         }
         if (found.size() < GAME_FILES.length && depth < 3) {
             for (String folder : folders) {
-                searchTree(tree, folder, depth + 1, found);
+                searchTree(tree, folder, depth + 1, found, packages);
                 if (found.size() == GAME_FILES.length) {
                     break;
                 }
@@ -268,11 +295,16 @@ public class SetupActivity extends Activity {
         if (resultCode != RESULT_OK || data == null) {
             return;
         }
+        if (requestCode == PICK_PKG && data.getData() != null) {
+            importPkg(data.getData());
+            return;
+        }
         Map<String, Source> found = new HashMap<>();
+        List<Source> packages = new ArrayList<>();
         try {
             if (requestCode == PICK_FOLDER && data.getData() != null) {
                 Uri tree = data.getData();
-                searchTree(tree, DocumentsContract.getTreeDocumentId(tree), 0, found);
+                searchTree(tree, DocumentsContract.getTreeDocumentId(tree), 0, found, packages);
             } else if (requestCode == PICK_FILES) {
                 List<Uri> uris = new ArrayList<>();
                 ClipData clip = data.getClipData();
@@ -288,6 +320,8 @@ public class SetupActivity extends Activity {
                     Source source = describe(uri, name);
                     if (name[0] != null && isGameFile(name[0])) {
                         found.put(name[0].toLowerCase(Locale.ROOT), source);
+                    } else if (isPkgName(name[0])) {
+                        packages.add(source);
                     }
                 }
             }
@@ -301,11 +335,120 @@ public class SetupActivity extends Activity {
                 missing.add(name);
             }
         }
+        if (!missing.isEmpty() && !packages.isEmpty()) {
+            // no extracted files, but a package: take them out of it (the largest .pkg is the game, not an update)
+            Source largest = packages.get(0);
+            for (Source p : packages) {
+                if (p.size > largest.size) largest = p;
+            }
+            importPkg(largest.uri);
+            return;
+        }
         if (!missing.isEmpty()) {
-            status.setText("No encontré: " + String.join(", ", missing) + "\nElige la carpeta CUSA01127 que los tiene (o los tres archivos).");
+            status.setText("No encontré: " + String.join(", ", missing) + "\nElige el PKG del juego, la carpeta que los tiene o los tres archivos.");
             return;
         }
         copy(found);
+    }
+
+    // ---- extracting from a PKG --------------------------------------------------------------------------------------
+
+    /** Random access to a picked document through its file descriptor (a file on the phone; a cloud stream is not). */
+    private static final class ChannelSource implements PkgExtractor.Source {
+        private final FileChannel channel;
+        private final long size;
+
+        ChannelSource(FileChannel channel, long size) {
+            this.channel = channel;
+            this.size = size;
+        }
+
+        @Override
+        public long size() {
+            return size;
+        }
+
+        @Override
+        public void read(long pos, byte[] buffer, int offset, int len) throws IOException {
+            ByteBuffer target = ByteBuffer.wrap(buffer, offset, len);
+            while (target.hasRemaining()) {
+                int n = channel.read(target, pos + (target.position() - offset));
+                if (n < 0) {
+                    throw new IOException("the PKG ended early (incomplete download?)");
+                }
+            }
+        }
+    }
+
+    private void importPkg(Uri uri) {
+        copying = true;
+        setButtonsEnabled(false);
+        progress.setProgress(0);
+        progress.setIndeterminate(true);
+        progress.setVisibility(View.VISIBLE);
+        status.setText("Abriendo el PKG…");
+        new Thread(() -> {
+            String failure = null;
+            boolean retail = false;
+            try (ParcelFileDescriptor descriptor = getContentResolver().openFileDescriptor(uri, "r");
+                 FileInputStream stream = new FileInputStream(descriptor.getFileDescriptor());
+                 FileChannel channel = stream.getChannel()) {
+                long size = descriptor.getStatSize() > 0 ? descriptor.getStatSize() : channel.size();
+                ChannelSource source = new ChannelSource(channel, size);
+                if (!PkgExtractor.isPkg(source)) {
+                    throw new IOException("no es un PKG de PS4");
+                }
+                PkgExtractor.Contents contents = PkgExtractor.open(source);
+                long needed = contents.totalSize();
+                targetDir.mkdirs();
+                long free = new StatFs(targetDir.getAbsolutePath()).getAvailableBytes();
+                if (free < needed + 64L * 1024 * 1024) {
+                    failure = String.format(Locale.ROOT, "No hay espacio: se necesitan %.2f GB y hay %.2f GB libres.", needed / 1e9, free / 1e9);
+                } else {
+                    runOnUiThread(() -> progress.setIndeterminate(false));
+                    final long[] lastShown = { 0 };
+                    PkgExtractor.extract(contents, targetDir, (name, done, total) -> {
+                        if (done - lastShown[0] >= (16L << 20) || done == total) {
+                            lastShown[0] = done;
+                            runOnUiThread(() -> showProgress("Extrayendo", name, done, total));
+                        }
+                    });
+                }
+            } catch (PkgExtractor.RetailException e) {
+                retail = true;
+            } catch (PkgExtractor.NotPtException e) {
+                failure = "Ese PKG no trae los archivos de P.T. Elige el PKG del juego (CUSA01127).";
+            } catch (Exception e) {
+                failure = "No pude leer el PKG (" + e.getMessage() + "). Si está en la nube, cópialo primero al teléfono.";
+            }
+            final String message = failure;
+            final boolean store = retail;
+            runOnUiThread(() -> finishPkg(message, store));
+        }, "pt-pkg").start();
+    }
+
+    private void finishPkg(String failure, boolean retail) {
+        copying = false;
+        progress.setIndeterminate(false);
+        progress.setVisibility(View.GONE);
+        setButtonsEnabled(true);
+        if (retail) {
+            status.setText("Este PKG es el original de la tienda: viene encriptado para la consola que tiene la licencia, "
+                    + "así que no se puede abrir (el instalador de PC tampoco puede).\n\n"
+                    + "Necesitas los 3 archivos ya extraídos (de un dump de una consola con P.T., o de un fake PKG): "
+                    + "toca \"Elegir los 3 archivos\" o \"Elegir la carpeta\".");
+            return;
+        }
+        if (failure != null) {
+            status.setText(failure);
+            return;
+        }
+        if (complete(targetDir)) {
+            status.setText("Listo, abriendo el juego…");
+            startGame();
+        } else {
+            status.setText("La extracción terminó pero falta algún archivo; vuelve a intentar.");
+        }
     }
 
     // ---- copying ----------------------------------------------------------------------------------------------------
@@ -367,11 +510,15 @@ public class SetupActivity extends Activity {
     }
 
     private void showProgress(String name, long done, long total) {
+        showProgress("Copiando", name, done, total);
+    }
+
+    private void showProgress(String verb, String name, long done, long total) {
         if (total > 0) {
             progress.setProgress((int) Math.min(1000, done * 1000 / total));
-            status.setText(String.format(Locale.ROOT, "Copiando %s… %.0f%% (%.2f de %.2f GB)", name, done * 100.0 / total, done / 1e9, total / 1e9));
+            status.setText(String.format(Locale.ROOT, "%s %s… %.0f%% (%.2f de %.2f GB)", verb, name, done * 100.0 / total, done / 1e9, total / 1e9));
         } else {
-            status.setText(String.format(Locale.ROOT, "Copiando %s… %.2f GB", name, done / 1e9));
+            status.setText(String.format(Locale.ROOT, "%s %s… %.2f GB", verb, name, done / 1e9));
         }
     }
 

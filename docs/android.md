@@ -22,19 +22,21 @@ APK nuevo se instala encima del anterior sin perder tu partida.
 
 ## Los archivos del juego
 
-Los tres archivos salen de tu dump de consola o de tu fake PKG; el instalador de Linux o Windows del proyecto original los
-extrae del PKG y los deja junto al port de PC. Pásalos al teléfono a cualquier carpeta (por ejemplo `PT/CUSA01127`).
+La primera vez que abres la app aparece la pantalla de configuración (`SetupActivity.java`), con el selector de archivos de
+Android:
 
-La primera vez que abres la app aparece la pantalla de configuración (`SetupActivity.java`):
+- **Elegir el PKG del juego**: si es un **fake PKG** (fPKG), la app lo abre y saca `chunk1.psarc`, `texture.qar` y
+  `pathid_list_ps4.bin`, igual que el instalador de PC (`android/.../pkg/PkgExtractor.java`, basado en LibOrbisPkg). Si es
+  el PKG **original de la tienda**, viene encriptado para la consola que tiene la licencia y no se puede abrir (el
+  instalador de PC tampoco puede); la pantalla lo dice y pide los tres archivos ya extraídos.
+- **Elegir la carpeta (con el PKG o los archivos)**: busca los tres archivos en la carpeta elegida y hasta tres niveles de
+  subcarpetas; si no están pero hay un `.pkg`, lo extrae.
+- **Elegir los 3 archivos**: el selector con selección múltiple (también acepta el `.pkg`).
 
-- **Elegir la carpeta con los archivos**: abre el selector de carpetas de Android; busca los tres archivos en la carpeta
-  elegida y hasta tres niveles de subcarpetas.
-- **Elegir los 3 archivos**: el selector de archivos, con selección múltiple.
-
-Los archivos se copian, con barra de progreso, a la carpeta de la app
+Los archivos quedan, con barra de progreso, en la carpeta de la app
 (`/storage/emulated/0/Android/data/com.rasteck7.ptdroid/files/CUSA01127/`), que no necesita permisos especiales; luego
-arranca el juego, y las siguientes veces entra directo. Después puedes borrar los originales. Si borras los datos de la app,
-la pantalla vuelve a aparecer.
+arranca el juego, y las siguientes veces entra directo. Después puedes borrar el PKG o los originales. Si borras los datos
+de la app, la pantalla vuelve a aparecer. El PKG tiene que estar en el teléfono (no en una carpeta de la nube).
 
 También funcionan, sin pasar por la pantalla:
 

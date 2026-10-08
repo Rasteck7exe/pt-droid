@@ -17,6 +17,7 @@ struct PcSettingRow {
     bool action = false;
     bool link = false;
     std::string note;
+    std::string confirm_note; // shown while an action row waits for its second press; empty: the reset-progress warning
     std::vector<std::string> value_notes;
     bool ValueDisabled(int v) const { return v >= 0 && v < static_cast<int>(value_notes.size()) && !value_notes[v].empty(); }
 };

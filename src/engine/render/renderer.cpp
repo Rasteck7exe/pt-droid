@@ -19,6 +19,18 @@
 #include "engine/render/upscale/upscale.h"
 
 namespace pt {
+
+namespace {
+#ifdef __ANDROID__
+// Android answers VK_SUBOPTIMAL_KHR to every acquire and present whose image is not pre-rotated, and the swapchain leaves the
+// rotation to the compositor on purpose (vk_context.cpp), so it is expected there: rebuilding on it remade the swapchain and
+// every render target each frame, which reset the exposure history (a washed-out picture) and cost most of the frame time.
+// A real size change still rebuilds it (Resize), and so does VK_ERROR_OUT_OF_DATE_KHR.
+constexpr bool kRebuildOnSuboptimal = false;
+#else
+constexpr bool kRebuildOnSuboptimal = true;
+#endif
+}
 namespace {
 
 VkFormat g_imgui_format = VK_FORMAT_UNDEFINED;
@@ -370,7 +382,7 @@ bool Renderer::BeginFrame(bool present) {
             swapchain_dirty_ = true;
             return false;
         }
-        if (acquire == VK_SUBOPTIMAL_KHR) {
+        if (acquire == VK_SUBOPTIMAL_KHR && kRebuildOnSuboptimal) {
             swapchain_dirty_ = true;
         }
     }
@@ -571,7 +583,7 @@ void Renderer::EndFrame(bool draw_ui) {
         const VkResult result = ctx_.QueuePresent(present);
         streamline::SetMarker(streamline::Marker::PresentEnd);
         ctx_.CheckDeviceLost(result, "present");
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || (result == VK_SUBOPTIMAL_KHR && kRebuildOnSuboptimal)) {
             swapchain_dirty_ = true;
         }
     }
